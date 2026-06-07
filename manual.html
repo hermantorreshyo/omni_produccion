@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Manuales · [1004] JOSEPAN 360 · Terminal de Producción OMNI</title>
+<style>
+  /* Autocontenido: sin CDN ni fuentes externas. Funciona offline y por file:// */
+  :root{
+    --ok:#10B981; --warn:#F59E0B; --danger:#EF4444;
+    --ink:#18181b; --mute:#71717a; --edge:#d4d4d8; --panel:#f4f4f5; --bg:#ffffff;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; background:var(--bg); color:var(--ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height:1.6; }
+  .wrap{ max-width:820px; margin:0 auto; padding:24px 18px 64px; }
+  header.doc{ border-bottom:2px solid var(--edge); padding-bottom:16px; margin-bottom:8px; }
+  .brand{ font-weight:900; font-size:20px; letter-spacing:-0.01em; }
+  .sub{ color:var(--mute); text-transform:uppercase; letter-spacing:.22em; font-size:11px; margin-top:4px; }
+  h1{ font-size:26px; font-weight:900; margin:14px 0 2px; }
+  .lead{ color:var(--mute); margin:0 0 8px; }
+
+  /* Pestañas */
+  nav.tabs{ position:sticky; top:0; background:var(--bg); display:flex; gap:8px; flex-wrap:wrap;
+    padding:12px 0; border-bottom:2px solid var(--edge); margin-bottom:20px; z-index:5; }
+  .tab{ appearance:none; border:2px solid var(--edge); background:var(--panel); color:var(--ink);
+    font-weight:800; font-size:14px; padding:12px 16px; border-radius:12px; cursor:pointer; min-height:48px; }
+  .tab[aria-selected="true"]{ background:var(--ink); color:#fff; border-color:var(--ink); }
+
+  section.panel{ display:none; }
+  section.panel.active{ display:block; }
+
+  h2{ font-size:20px; font-weight:900; margin:26px 0 8px; }
+  h3{ font-size:16px; font-weight:800; margin:20px 0 6px; }
+  h3.ok{ color:var(--ok); } h3.warn{ color:#b45309; } h3.danger{ color:var(--danger); }
+  p{ margin:8px 0; }
+  ul,ol{ margin:8px 0 8px 4px; padding-left:22px; }
+  li{ margin:4px 0; }
+  code{ background:var(--panel); border:1px solid var(--edge); border-radius:6px; padding:1px 6px;
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size:13px; }
+  pre{ background:#0f172a; color:#e2e8f0; border-radius:12px; padding:14px 16px; overflow:auto;
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size:13px; line-height:1.5; }
+  pre code{ background:none; border:0; padding:0; color:inherit; font-size:13px; }
+  .pill{ display:inline-block; font-weight:800; font-size:12px; padding:2px 10px; border-radius:999px; }
+  .pill.ok{ background:#ecfdf5; color:#065f46; } .pill.warn{ background:#fffbeb; color:#92400e; } .pill.danger{ background:#fef2f2; color:#991b1b; }
+  .note{ border-left:4px solid var(--warn); background:#fffbeb; padding:10px 14px; border-radius:8px; margin:12px 0; }
+  .danger-note{ border-left:4px solid var(--danger); background:#fef2f2; padding:10px 14px; border-radius:8px; margin:12px 0; }
+  table{ width:100%; border-collapse:collapse; margin:12px 0; font-size:14px; }
+  th,td{ text-align:left; border:1px solid var(--edge); padding:8px 10px; vertical-align:top; }
+  th{ background:var(--panel); }
+  .foot{ margin-top:40px; padding-top:16px; border-top:2px solid var(--edge); color:var(--mute); font-size:13px; }
+
+  @media print{
+    nav.tabs{ display:none; }
+    section.panel{ display:block !important; page-break-before:always; }
+    section.panel:first-of-type{ page-break-before:avoid; }
+    pre{ background:#f4f4f5; color:#111; border:1px solid var(--edge); }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="doc">
+    <div class="brand">JOSEPAN 360 · OMNI</div>
+    <div class="sub">Terminal de Producción en Planta · Proyecto [1004]</div>
+    <h1>Manuales del sistema</h1>
+    <p class="lead">Guía de uso, soporte técnico y despliegue. Este documento es autónomo: puede abrirse sin desplegar el proyecto ni disponer de conexión.</p>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab" role="tab" data-tab="usuario"   aria-selected="true">Manual de Usuario</button>
+    <button class="tab" role="tab" data-tab="tecnico"   aria-selected="false">Manual Técnico</button>
+    <button class="tab" role="tab" data-tab="despliegue" aria-selected="false">Manual de Despliegue</button>
+  </nav>
+
+  <!-- ============================ USUARIO ============================ -->
+  <section class="panel active" id="panel-usuario">
+    <h2>Cómo usar el terminal de producción</h2>
+    <p>Pensado para operarios y supervisores de planta. No necesita conocimientos informáticos.</p>
+
+    <h3 class="ok">1. Iniciar su turno</h3>
+    <p>Acerque su fotocheck al lector hasta oír un pitido corto: la sesión se abre sola. Si el lector no responde, escriba su PIN en el teclado grande de la pantalla y pulse el botón verde de confirmación. No hace falta usar el teclado del teléfono.</p>
+
+    <h3 class="ok">2. Registrar producto terminado</h3>
+    <p>Escanee el código de cada producto que sale de la línea. Cada lectura correcta suena con un pitido y vibra; el número grande del centro sube solo y muestra cuántas unidades lleva el pallet actual.</p>
+
+    <h3>3. Qué significan los colores</h3>
+    <table>
+      <tr><th>Color</th><th>Qué indica</th><th>Qué hacer</th></tr>
+      <tr><td><span class="pill ok">Verde</span></td><td>Lectura correcta.</td><td>Continúe escaneando con normalidad.</td></tr>
+      <tr><td><span class="pill warn">Amarillo</span> (barra superior)</td><td>No hay internet en este momento. El terminal guarda todo localmente.</td><td>Siga trabajando igual. Se enviará solo cuando vuelva la señal.</td></tr>
+      <tr><td><span class="pill danger">Rojo</span></td><td>Hubo un problema (lectura inválida, fallo, o sincronización bloqueada).</td><td>Si aparece el botón grande, pulse "Reintentar". Si la barra roja pide supervisor, avise a su supervisor.</td></tr>
+    </table>
+
+    <h3>4. Corregir una lectura equivocada</h3>
+    <p>Debajo del número grande aparecen las últimas lecturas. Si escaneó algo por error, pulse el botón rojo de la papelera junto a esa lectura para quitarla. El contador se ajusta solo.</p>
+
+    <h3>5. Cerrar el pallet y enviarlo a bodega</h3>
+    <p>Cuando termine el pallet, pulse el botón ancho de abajo <strong>"Concluir Traslado"</strong>. El terminal traspasa la custodia del lote hacia la bodega central, vuelve a cero y queda listo para el siguiente pallet.</p>
+
+    <h3>6. Cerrar sesión</h3>
+    <p>Al terminar su turno pulse <strong>"Salir"</strong> arriba a la derecha. El siguiente compañero podrá identificarse con su fotocheck o su PIN.</p>
+
+    <div class="note"><strong>Sonidos:</strong> pitido agudo = todo bien. Zumbido grave y doble vibración = algo falló (revise el color de la pantalla).</div>
+  </section>
+
+  <!-- ============================ TÉCNICO ============================ -->
+  <section class="panel" id="panel-tecnico">
+    <h2>Manual técnico · Administración y soporte</h2>
+
+    <h3>Stack y arquitectura</h3>
+    <p>LAMP nativo (PHP 8.x con <code>declare(strict_types=1)</code>, sin frameworks). <code>index.php</code> renderiza condicionalmente según la presencia de <code>config.php</code> e inyecta <code>window.__OMNI_BOOTSTRAP__</code> como fuente de verdad estructural. El frontend es JS Vanilla modular sin Vue/React.</p>
+    <table>
+      <tr><th>Archivo</th><th>Responsabilidad</th></tr>
+      <tr><td><code>index.php</code></td><td>DOM, render condicional, bootstrap servidor→cliente, modales (incluye el visor de manuales por iframe).</td></tr>
+      <tr><td><code>setup.php</code></td><td>Backend POO del wizard: proxy de mismo origen al API CORE y escritura de <code>config.php</code>.</td></tr>
+      <tr><td><code>setup.js</code></td><td>Frontend del asistente paso a paso.</td></tr>
+      <tr><td><code>api-client.js</code></td><td>Cliente operativo: login, catálogo, conversión metrológica, traspasos atómicos.</td></tr>
+      <tr><td><code>outbox-service.js</code></td><td>Cola Outbox offline en IndexedDB y sincronización diferida.</td></tr>
+      <tr><td><code>app.js</code></td><td>Orquestador: router, escáner, ciclo de producción, banners, anti-crash.</td></tr>
+      <tr><td><code>manual.html</code></td><td>Esta documentación (autónoma, abrible sin desplegar).</td></tr>
+      <tr><td><code>config.php</code></td><td>Autogenerado por <code>setup.php</code> (no versionar). Sólo identificadores estructurales.</td></tr>
+    </table>
+
+    <h3>Autoinstalación (Setup Wizard)</h3>
+    <p>El asistente sólo aparece si no existe <code>config.php</code>. <code>setup.js</code> consume <code>setup.php?action=…</code> (mismo origen, sin CORS) para: test de conexión, login de supervisor, descarga de interlocutores/ubicaciones e instalación. Al concluir, <code>setup.php</code> escribe <code>config.php</code> con <code>chmod 0600</code>, el cliente cachea la config cifrada y la app se auto-reinicia (recarga) hacia el login.</p>
+
+    <h3>Re-despliegue / purga de nodo</h3>
+    <ul>
+      <li>Eliminar <code>config.php</code> del servidor y limpiar el almacenamiento del navegador (claves <code>omni1004.*</code> en localStorage e IndexedDB <code>omni1004_outbox</code>).</li>
+      <li>O bien <code>POST setup.php</code> con <code>{ "action":"purge", "token":"&lt;JWT supervisor&gt;" }</code>.</li>
+    </ul>
+
+    <h3>Patrón Outbox y persistencia</h3>
+    <p>Las conclusiones de pallet se encolan en IndexedDB (<code>omni1004_outbox</code>) con su timestamp físico. Un servicio asíncrono sincroniza en orden cronológico estricto al volver la red.</p>
+    <ul>
+      <li><span class="pill warn">Microcorte</span> (error de red): pausa y reintento automático cada 20 s y al evento <code>online</code>.</li>
+      <li><span class="pill danger">Rechazo lógico</span> (HTTP 4xx): congelamiento persistente, banner rojo, desbloqueo sólo por supervisor.</li>
+    </ul>
+
+    <h3>Comunicación con el [1001] API CORE</h3>
+    <p>Operación directa por <code>fetch</code> con <code>Authorization: Bearer &lt;JWT&gt;</code>. Stock siempre como <strong>delta atómico relativo</strong> (jamás <code>SET</code> absoluto). Conversión metrológica a unidad base (g/ml/ud) en la frontera de envío. El traspaso usa el tipo <code>TRANSFER_CUSTODY</code> (custodia → tránsito) con <code>idempotency_key</code> + <code>occurred_at</code>.</p>
+    <p>Contrato de endpoints (ajustar a las rutas reales del v6, centralizado en <code>api-client.js</code> y <code>setup.php</code>):</p>
+    <pre><code>GET  /health
+POST /auth/login              { identifier, pin } -> { token, user }
+GET  /interlocutors
+GET  /locations?interlocutor_id=
+GET  /products?interlocutor_id=
+POST /inventory/transfers     { type, idempotency_key, from_location_id,
+                                to_location_id, occurred_at, items:[{sku,delta,unit}] }</code></pre>
+
+    <h3>Mapa de errores comunes</h3>
+    <table>
+      <tr><th>Síntoma</th><th>Causa probable</th><th>Acción</th></tr>
+      <tr><td>"Sin conexión con el API CORE"</td><td>Red/DNS/CORS o API caído.</td><td>Verificar <code>/health</code> y CORS del API.</td></tr>
+      <tr><td>"SKU inexistente"</td><td>EAN ausente del catálogo cacheado.</td><td>Re-sincronizar catálogo (reabrir sesión online).</td></tr>
+      <tr><td>"Perfil no autorizado"</td><td>El rol del JWT no es Operario de Producción ni Supervisor de Planta.</td><td>Revisar RBAC en el API CORE.</td></tr>
+      <tr><td>Outbox congelado (banner rojo)</td><td>4xx del servidor.</td><td>Leer el detalle, corregir en el API y desbloquear con supervisor.</td></tr>
+      <tr><td>Pantalla roja anti-crash</td><td>Excepción no controlada.</td><td>"Reintentar y Reenfocar" reinicia el router sin perder la cola.</td></tr>
+      <tr><td>500 al instalar</td><td>Sin permiso de escritura para <code>config.php</code>.</td><td>Ver Manual de Despliegue → permisos.</td></tr>
+    </table>
+  </section>
+
+  <!-- ============================ DESPLIEGUE ============================ -->
+  <section class="panel" id="panel-despliegue">
+    <h2>Manual de despliegue</h2>
+    <p>Instalación del terminal en hosting compartido (LAMP) o entorno local XAMPP. Subdominio de referencia: <code>https://produccion.omni.josepan.app</code>.</p>
+
+    <h3>1. Requisitos del servidor</h3>
+    <ul>
+      <li>PHP 8.0 o superior con extensión <code>curl</code> habilitada (alternativamente <code>allow_url_fopen=On</code> para el fallback por streams).</li>
+      <li>Apache con <code>mod_rewrite</code> (recomendado) y HTTPS válido en el subdominio.</li>
+      <li>Permiso de escritura del usuario web sobre el directorio raíz del nodo (para generar <code>config.php</code> y <code>setup.log</code>).</li>
+    </ul>
+
+    <h3>2. Subir archivos</h3>
+    <p>Copiar al document root del subdominio los siguientes archivos (todos en el mismo directorio):</p>
+    <pre><code>produccion.omni.josepan.app/
+├── index.php
+├── setup.php
+├── setup.js
+├── app.js
+├── api-client.js
+├── outbox-service.js
+├── manual.html
+└── .htaccess        (ver punto 4)
+# config.php y setup.log se crean solos en el primer arranque</code></pre>
+
+    <h3>3. Permisos</h3>
+    <pre><code># El usuario de Apache (www-data / nobody) debe poder escribir en el directorio:
+chmod 755 .                 # directorio del nodo
+# Tras la instalación, config.php queda en 0600 automáticamente.
+# Si el panel de hosting no permite que Apache escriba, cree los ficheros
+# vacíos con permiso de escritura antes del primer arranque:
+touch config.php setup.log && chmod 660 config.php setup.log</code></pre>
+    <div class="note">En hosting compartido el propietario suele ser el mismo usuario que ejecuta PHP (FPM/suexec), por lo que <code>config.php</code> en 0600 funciona. Si usa un usuario distinto para Apache, ajuste a 0660 y grupo correcto.</div>
+
+    <h3>4. Endurecimiento con .htaccess</h3>
+    <p>Bloquear el acceso web a los ficheros sensibles y forzar HTTPS:</p>
+    <pre><code>&lt;IfModule mod_rewrite.c&gt;
+  RewriteEngine On
+  RewriteBase /
+  # Forzar HTTPS
+  RewriteCond %{HTTPS} off
+  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+&lt;/IfModule&gt;
+
+# Negar acceso directo a ficheros internos
+&lt;FilesMatch "^(config\.php|setup\.log)$"&gt;
+  Require all denied
+&lt;/FilesMatch&gt;
+
+# Cabeceras de seguridad básicas
+&lt;IfModule mod_headers.c&gt;
+  Header set X-Content-Type-Options "nosniff"
+  Header set X-Frame-Options "SAMEORIGIN"
+&lt;/IfModule&gt;</code></pre>
+    <div class="danger-note"><strong>Importante:</strong> <code>config.php</code> nunca contiene credenciales operativas (sólo IDs estructurales del nodo), pero igualmente debe quedar fuera del acceso web público.</div>
+
+    <h3>5. CORS en el API CORE</h3>
+    <p>La operación de planta hace <code>fetch</code> directo al API CORE (p. ej. <code>https://api.omni.josepan.app</code>). Ese dominio debe responder a las peticiones del origen del terminal:</p>
+    <pre><code>Access-Control-Allow-Origin: https://produccion.omni.josepan.app
+Access-Control-Allow-Headers: Authorization, Content-Type, Accept
+Access-Control-Allow-Methods: GET, POST, OPTIONS</code></pre>
+    <p>La fase de instalación (wizard) <strong>no</strong> requiere CORS porque pasa por el proxy <code>setup.php</code> (mismo origen).</p>
+
+    <h3>6. Primer arranque (instalación guiada)</h3>
+    <ol>
+      <li>Abrir <code>https://produccion.omni.josepan.app</code>. Al no existir <code>config.php</code>, arranca el asistente.</li>
+      <li><strong>Paso 1:</strong> introducir la URL base del API CORE y pulsar "Probar Conexión" (mide latencia contra <code>/health</code>).</li>
+      <li><strong>Paso 2:</strong> autenticar al supervisor de infraestructura y elegir la fábrica/sede de este terminal.</li>
+      <li><strong>Paso 3:</strong> mapear la ubicación de custodia temporal (origen) y la de bodega/tránsito (destino).</li>
+      <li><strong>Paso 4:</strong> "Concluir Autoinstalación" escribe <code>config.php</code> y recarga hacia el login operativo.</li>
+    </ol>
+
+    <h3>7. Entorno local XAMPP</h3>
+    <pre><code># 1) Copiar el proyecto en htdocs (o usar un VirtualHost dedicado):
+#    C:\xampp\htdocs\produccion\
+
+# 2) httpd-vhosts.conf  (Apache\conf\extra)
+&lt;VirtualHost *:80&gt;
+  DocumentRoot "C:/xampp/htdocs/produccion"
+  ServerName produccion.local
+  &lt;Directory "C:/xampp/htdocs/produccion"&gt;
+    AllowOverride All
+    Require all granted
+  &lt;/Directory&gt;
+&lt;/VirtualHost&gt;
+
+# 3) C:\Windows\System32\drivers\etc\hosts
+127.0.0.1   produccion.local
+
+# 4) php.ini  ->  habilitar:  extension=curl
+# 5) Reiniciar Apache y abrir http://produccion.local</code></pre>
+    <div class="note">El audio (WebAudio) y la vibración requieren un primer toque del usuario y, en móviles, contexto HTTPS. En <code>http://localhost</code> el audio funciona; la vibración puede no estar disponible en escritorio.</div>
+
+    <h3>8. Producción: compilar Tailwind estático (opcional pero recomendado)</h3>
+    <p>El <code>index.php</code> usa el CDN de Tailwind para desarrollo. Para planta (rendimiento y operación offline garantizada) conviene compilar un CSS estático local y reemplazar la etiqueta del CDN por el fichero servido desde el propio nodo. El CSS crítico de respaldo embebido mantiene el terminal legible aunque el CDN no cargue.</p>
+
+    <h3>9. Verificación post-despliegue</h3>
+    <table>
+      <tr><th>Comprobación</th><th>Esperado</th></tr>
+      <tr><td>Abrir la URL sin <code>config.php</code></td><td>Aparece el wizard de autoinstalación.</td></tr>
+      <tr><td>"Probar Conexión"</td><td>Verde + latencia en ms.</td></tr>
+      <tr><td>Acceso directo a <code>/config.php</code></td><td>403 Forbidden (denegado por .htaccess).</td></tr>
+      <tr><td>Login operario + escaneo</td><td>Pitido, contador sube, tarjeta de lectura.</td></tr>
+      <tr><td>Desconectar Wi-Fi y escanear</td><td>Banner amarillo; al reconectar, sincroniza solo.</td></tr>
+    </table>
+
+    <h3>10. Re-despliegue / purga</h3>
+    <p>Para reinstalar el nodo: borrar <code>config.php</code> y limpiar el almacenamiento del navegador (localStorage <code>omni1004.*</code> e IndexedDB <code>omni1004_outbox</code>); o invocar <code>setup.php</code> con <code>action=purge</code> y token de supervisor. En el siguiente arranque vuelve a aparecer el asistente.</p>
+  </section>
+
+  <div class="foot">
+    JOSEPAN 360 · Ecosistema OMNI · Subsistema [1004] Producción en Planta · Documentación técnica interna.
+  </div>
+
+</div>
+
+<script>
+  // Navegación por pestañas + deep-link por hash (#usuario, #tecnico, #despliegue).
+  (function () {
+    var tabs = Array.prototype.slice.call(document.querySelectorAll('.tab'));
+    function activate(name) {
+      tabs.forEach(function (t) { t.setAttribute('aria-selected', t.dataset.tab === name ? 'true' : 'false'); });
+      ['usuario', 'tecnico', 'despliegue'].forEach(function (n) {
+        var p = document.getElementById('panel-' + n);
+        if (p) p.classList.toggle('active', n === name);
+      });
+      if (history.replaceState) history.replaceState(null, '', '#' + name);
+      window.scrollTo(0, 0);
+    }
+    tabs.forEach(function (t) { t.addEventListener('click', function () { activate(t.dataset.tab); }); });
+    var initial = (location.hash || '').replace('#', '');
+    if (['usuario', 'tecnico', 'despliegue'].indexOf(initial) >= 0) activate(initial);
+  })();
+</script>
+</body>
+</html>
