@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#642a72" />
+  <title>JOSEPAN 360 · Producción [1004]</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { theme: { extend: {
+      colors: {
+        brand: { DEFAULT:'#642a72', light:'#8a3d9a', dark:'#4a1f54' },
+        ink:   { DEFAULT:'#0f172a', 50:'#f8fafc',100:'#f1f5f9',200:'#e2e8f0',300:'#cbd5e1',400:'#94a3b8',500:'#64748b',600:'#475569',700:'#334155',800:'#1e293b',900:'#0f172a' },
+        ok:'#10b981', danger:'#ef4444', warn:'#f59e0b'
+      },
+      fontFamily: { sans: ['"Inter"','system-ui','sans-serif'] }
+    } } }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <style>
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    .view { display: none; } .view.active { display: flex; }
+    input:focus, select:focus, button:focus-visible { outline: 2px solid #642a72; outline-offset: 2px; }
+    #toast { transition: opacity .3s, transform .3s; } #toast.hide { opacity: 0; transform: translateY(8px); pointer-events: none; }
+    .scan-trap { position: fixed; opacity: 0; pointer-events: none; width: 1px; height: 1px; top: -100px; }
+    .stage { transition: background .18s, border-color .18s; }
+    .stage.ok { background: #ecfdf5; border-color: #10b981; } .stage.err { background: #fef2f2; border-color: #ef4444; }
+    .touch { min-height: 64px; } .num { font-variant-numeric: tabular-nums; }
+    #drawer { transition: transform .25s ease; transform: translateX(100%); }
+    #drawer.open { transform: translateX(0); }
+    .cat-chip { display:inline-flex; align-items:center; gap:.35rem; }
+  </style>
+</head>
+<body class="bg-ink-100 min-h-screen text-ink-900">
+
+  <!-- ════ BANNERS ════ -->
+  <div id="offline-banner" class="hidden fixed top-0 inset-x-0 z-40 bg-warn text-white text-sm font-semibold px-4 py-2 text-center">
+    <span id="offline-label">MODO OFFLINE</span> · <span id="offline-count" class="num">0</span> traslado(s) en cola
+  </div>
+  <div id="sync-banner" class="hidden fixed top-0 inset-x-0 z-40 bg-danger text-white text-sm font-semibold px-4 py-2 text-center">
+    Sincronización detenida · <span id="sync-detail">requiere supervisor</span>
+    <button id="btn-unfreeze" class="ml-3 underline">Desbloquear</button>
+  </div>
+
+  <!-- ════ LOGIN (solo credenciales) ════ -->
+  <section id="login-view" class="view active min-h-screen w-full items-center justify-center px-5 py-10">
+    <div class="w-full max-w-sm">
+      <div class="text-center mb-8">
+        <div class="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-brand text-white font-extrabold text-xl mb-3">J</div>
+        <h1 class="text-2xl font-extrabold">JOSEPAN 360</h1>
+        <p class="text-ink-500 text-sm mt-1">Terminal de Producción · [1004]</p>
+      </div>
+      <div class="bg-white rounded-2xl border border-ink-200 shadow-sm p-7">
+        <label class="block text-xs font-semibold uppercase tracking-wider text-ink-500 mb-1.5">Usuario</label>
+        <input id="login-user" type="text" spellcheck="false" autocapitalize="off" autocomplete="username"
+               class="w-full rounded-lg border border-ink-300 px-3.5 py-3 text-base mb-4" />
+        <label class="block text-xs font-semibold uppercase tracking-wider text-ink-500 mb-1.5">Contraseña</label>
+        <input id="login-pass" type="password" autocomplete="current-password"
+               class="w-full rounded-lg border border-ink-300 px-3.5 py-3 text-base mb-5" />
+        <button id="btn-login" class="touch w-full rounded-lg bg-brand hover:bg-brand-light text-white font-semibold text-base transition-colors">Iniciar sesión</button>
+        <div id="login-msg" class="mt-4 text-sm font-medium min-h-[1.25rem] text-center"></div>
+      </div>
+      <p class="text-center text-ink-400 text-xs mt-6">OMNI API CORE v6 · proxy PHP mismo-origen</p>
+    </div>
+  </section>
+
+  <!-- ════ SELECCIÓN DE SEDE (posterior al login) ════ -->
+  <section id="site-view" class="view min-h-screen w-full items-center justify-center px-5 py-10">
+    <div class="w-full max-w-sm">
+      <div class="text-center mb-6">
+        <div class="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-brand/10 text-brand mb-3">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-3"/></svg>
+        </div>
+        <h1 class="text-xl font-extrabold">Selecciona tu sede</h1>
+        <p class="text-ink-500 text-sm mt-1">¿En qué sede trabajas hoy, <span id="site-user" class="font-semibold text-ink-700"></span>?</p>
+      </div>
+      <div class="bg-white rounded-2xl border border-ink-200 shadow-sm p-7">
+        <select id="login-site" class="w-full rounded-lg border border-ink-300 px-3.5 py-3 text-base mb-5 bg-white"></select>
+        <button id="btn-enter" class="touch w-full rounded-lg bg-brand hover:bg-brand-light text-white font-semibold text-base transition-colors">Entrar a producción</button>
+        <button id="btn-back" class="w-full mt-3 text-ink-500 text-sm">← Cerrar sesión</button>
+        <div id="site-msg" class="mt-4 text-sm font-medium min-h-[1.25rem] text-center"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════ PRODUCCIÓN ════ -->
+  <section id="prod-view" class="view min-h-screen w-full flex-col">
+    <input id="scan-trap" class="scan-trap" autocomplete="off" inputmode="none" aria-hidden="true" />
+
+    <header class="bg-white border-b border-ink-200 px-3 py-2.5 flex items-center gap-2 sticky top-0 z-20">
+      <button id="btn-menu" class="w-10 h-10 rounded-lg hover:bg-ink-100 flex items-center justify-center shrink-0" aria-label="Menú">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#334155" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <div class="min-w-0 flex-1">
+        <div id="prod-factory" class="font-bold truncate leading-tight">Sede</div>
+        <div class="text-ink-400 text-[11px] truncate">sede activa</div>
+      </div>
+      <div class="text-right min-w-0 max-w-[42%]">
+        <div id="prod-operator" class="text-xs font-semibold truncate leading-tight">Operario</div>
+        <div id="prod-role" class="text-ink-400 text-[10px] truncate">—</div>
+      </div>
+      <button id="btn-logout" class="shrink-0 w-10 h-10 rounded-lg border border-danger/30 text-danger flex items-center justify-center" aria-label="Cerrar sesión" title="Cerrar sesión">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      </button>
+    </header>
+
+    <main class="flex-1 px-4 py-5 max-w-md w-full mx-auto">
+      <div class="flex items-center justify-between text-xs text-ink-500 mb-4 bg-white border border-ink-200 rounded-lg px-3 py-2">
+        <span class="truncate"><span id="loc-custody">—</span> <span class="text-ink-300">→</span> <span id="loc-transit">—</span></span>
+      </div>
+
+      <div id="prod-stage" class="stage bg-white border-2 border-ink-200 rounded-2xl p-6 text-center mb-4">
+        <div class="text-ink-400 text-xs uppercase tracking-wider mb-2">Escanee producto terminado</div>
+        <div class="text-5xl mb-2">📦</div>
+        <div id="prod-last" class="text-base font-semibold min-h-[1.5rem] text-ink-500 num">Esperando lectura…</div>
+      </div>
+
+      <div class="relative mb-5">
+        <input id="sku-search" type="text" autocomplete="off" spellcheck="false"
+               placeholder="Buscar producto o teclear SKU / EAN"
+               class="w-full rounded-xl border border-ink-300 px-4 py-3 text-base bg-white" />
+        <div id="sku-results" class="hidden absolute z-30 mt-1 w-full bg-white border border-ink-200 rounded-xl shadow-lg overflow-hidden max-h-72 overflow-y-auto"></div>
+      </div>
+
+      <div class="bg-white border border-ink-200 rounded-2xl p-6 text-center mb-5">
+        <div class="text-ink-400 text-xs uppercase tracking-wider mb-1">Unidades en el pallet</div>
+        <div id="prod-counter" class="text-5xl font-extrabold text-brand num">0</div>
+      </div>
+
+      <div class="mb-5">
+        <div class="text-ink-400 text-xs uppercase tracking-wider mb-2">Últimas lecturas</div>
+        <div id="prod-recent" class="space-y-2"></div>
+      </div>
+
+      <button id="btn-conclude" disabled
+        class="touch w-full rounded-xl bg-brand hover:bg-brand-light disabled:bg-ink-300 text-white font-bold text-lg transition-colors">
+        Concluir traslado → bodega
+      </button>
+    </main>
+  </section>
+
+  <!-- ════ DRAWER (menú) ════ -->
+  <div id="drawer-scrim" class="hidden fixed inset-0 z-40 bg-black/40"></div>
+  <aside id="drawer" class="fixed top-0 right-0 z-50 h-full w-[88%] max-w-sm bg-ink-50 shadow-2xl flex flex-col">
+    <div class="bg-white border-b border-ink-200 px-5 py-4 flex items-center justify-between">
+      <h2 class="font-bold text-lg">Mi producción</h2>
+      <button id="drawer-close" class="w-9 h-9 rounded-lg hover:bg-ink-100 flex items-center justify-center" aria-label="Cerrar">✕</button>
+    </div>
+    <div class="flex-1 overflow-y-auto p-5 space-y-5">
+      <!-- KPIs (desde el kardex del API) -->
+      <div>
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-ink-400 text-xs uppercase tracking-wider">KPI de hoy</span>
+          <span id="kpi-source" class="text-ink-300 text-[10px]"></span>
+        </div>
+        <div class="grid grid-cols-3 gap-3">
+          <div class="bg-white rounded-xl border border-ink-200 p-3 text-center"><div id="kpi-units" class="text-2xl font-extrabold text-brand num">0</div><div class="text-ink-400 text-[11px] mt-1">unidades</div></div>
+          <div class="bg-white rounded-xl border border-ink-200 p-3 text-center"><div id="kpi-moves" class="text-2xl font-extrabold text-brand num">0</div><div class="text-ink-400 text-[11px] mt-1">traslados</div></div>
+          <div class="bg-white rounded-xl border border-ink-200 p-3 text-center"><div id="kpi-skus" class="text-2xl font-extrabold text-brand num">0</div><div class="text-ink-400 text-[11px] mt-1">SKUs</div></div>
+        </div>
+        <div id="kpi-week" class="text-ink-500 text-xs mt-2"></div>
+        <div id="kpi-last" class="text-ink-400 text-xs"></div>
+      </div>
+
+      <!-- Configuración: categorías aceptadas -->
+      <div id="cfg-section" class="hidden">
+        <div class="text-ink-400 text-xs uppercase tracking-wider mb-2">Configuración · categorías aceptadas</div>
+        <div class="bg-white rounded-xl border border-ink-200 p-4">
+          <p class="text-ink-500 text-xs mb-3">Tipos de producto (item_type) que este módulo carga del catálogo. Añade nuevas categorías a medida que se creen.</p>
+          <div id="cat-chips" class="flex flex-wrap gap-2 mb-3"></div>
+          <div class="flex gap-2">
+            <input id="cat-input" type="text" placeholder="Ej: PT, CD, PN" class="flex-1 rounded-lg border border-ink-300 px-3 py-2 text-sm uppercase" />
+            <button id="cat-add" class="rounded-lg bg-ink-100 text-ink-700 px-3 py-2 text-sm font-semibold">Añadir</button>
+          </div>
+          <button id="cat-save" class="w-full mt-3 rounded-lg bg-brand text-white py-2.5 text-sm font-semibold">Guardar categorías</button>
+          <div id="cat-msg" class="text-xs mt-2 min-h-[1rem]"></div>
+        </div>
+      </div>
+
+      <!-- Ubicaciones -->
+      <div>
+        <div class="text-ink-400 text-xs uppercase tracking-wider mb-2">Ubicaciones del traslado</div>
+        <label class="block text-[11px] text-ink-500 mb-1">Custodia (origen)</label>
+        <select id="drw-custody" class="w-full rounded-lg border border-ink-300 px-3 py-2 mb-3 bg-white text-sm"></select>
+        <label class="block text-[11px] text-ink-500 mb-1">Bodega (destino)</label>
+        <select id="drw-transit" class="w-full rounded-lg border border-ink-300 px-3 py-2 bg-white text-sm"></select>
+      </div>
+
+      <!-- Registrado hoy -->
+      <div>
+        <div class="text-ink-400 text-xs uppercase tracking-wider mb-2">Registrado hoy</div>
+        <div id="drw-history" class="space-y-2"></div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ════ MODAL · DESBLOQUEO SUPERVISOR ════ -->
+  <div id="unfreeze-modal" class="hidden fixed inset-0 z-50 bg-black/40 items-center justify-center px-5">
+    <div class="bg-white rounded-2xl w-full max-w-sm p-6">
+      <h2 class="font-bold text-lg mb-1">Desbloqueo de supervisor</h2>
+      <p class="text-ink-500 text-sm mb-4">Un traslado fue rechazado por el API. Verifíquelo y autorice el reintento.</p>
+      <input id="uf-user" type="text" placeholder="Usuario supervisor" class="w-full rounded-lg border border-ink-300 px-3 py-2.5 mb-3" />
+      <input id="uf-pass" type="password" placeholder="Contraseña" class="w-full rounded-lg border border-ink-300 px-3 py-2.5 mb-4" />
+      <div id="uf-msg" class="text-sm font-medium min-h-[1.25rem] mb-2"></div>
+      <div class="flex gap-3">
+        <button id="uf-cancel" class="flex-1 rounded-lg border border-ink-300 py-2.5 font-medium text-ink-600">Cancelar</button>
+        <button id="uf-ok" class="flex-1 rounded-lg bg-brand text-white py-2.5 font-semibold">Autorizar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════ TOAST ════ -->
+  <div id="toast" class="hide fixed bottom-5 inset-x-0 z-50 flex justify-center px-5">
+    <div id="toast-box" class="rounded-xl px-5 py-3 text-white text-sm font-semibold shadow-lg bg-ink-900"></div>
+  </div>
+
+  <script src="app.js?v=20260621d"></script>
+</body>
+</html>

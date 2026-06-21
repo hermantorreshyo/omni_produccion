@@ -1,0 +1,36 @@
+# ═══════════════════════════════════════════════════════════════════
+# JOSEPAN 360 · OMNI · [1004] Producción
+# Sirve la SPA + el proxy PHP (api/omni.php) y NEUTRALIZA el redirect
+# heredado del proyecto padre (el dashboard envía las rutas a /dashboard/
+# con un 302). Este .htaccess tiene prioridad dentro de 1004_04/.
+# ═══════════════════════════════════════════════════════════════════
+
+Options -Indexes -MultiViews
+DirectoryIndex index.html
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # 1) Nunca reescribir el proxy ni la carpeta api/ → deja pasar a PHP.
+    RewriteRule ^api/ - [L]
+
+    # 2) Servir archivos y directorios reales tal cual (index.html, app.js, etc.).
+    #    Al definir reglas propias, NO se heredan las del padre → se corta el 302.
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+</IfModule>
+
+# Asegurar que .php se procesa como PHP en este directorio.
+<FilesMatch "\.php$">
+    <IfModule mod_mime.c>
+        SetHandler application/x-httpd-php
+    </IfModule>
+</FilesMatch>
+
+# No cachear durante el despliegue.
+<FilesMatch "\.(js|css|html|php)$">
+    <IfModule mod_headers.c>
+        Header set Cache-Control "no-cache, no-store, must-revalidate"
+    </IfModule>
+</FilesMatch>
