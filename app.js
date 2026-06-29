@@ -556,7 +556,7 @@
       CFG = data.config; sessionUser = data.user; activeSite = data.interlocutor; canConfigure = !!data.can_configure;
       if (data.authenticated && activeSite) { Catalog.restore(); await startTerminal(); return; }
       if (data.authenticated && !activeSite) { await goToSiteSelection(); return; }
-    } catch (e) { if (e.deploy) loginMsg('⚠ ' + e.message, 'err'); }
+    } catch (e) { loginMsg('⚠ ' + (e.message || 'Error al cargar la aplicación'), 'err'); }
     showView('login-view'); setTimeout(function () { try { $('login-user').focus(); } catch (e) {} }, 60);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();

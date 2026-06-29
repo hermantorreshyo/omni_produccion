@@ -13,6 +13,22 @@
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
+// ── Diagnóstico: cualquier fatal/excepción se devuelve como JSON (no 500 vacío) ──
+ini_set('display_errors', '0');
+error_reporting(E_ALL);
+set_exception_handler(function ($e) {
+    if (!headers_sent()) { http_response_code(500); header('Content-Type: application/json; charset=utf-8'); }
+    echo json_encode(['status' => 'error', 'data' => null, 'message' => 'PHP: ' . $e->getMessage() . ' @ ' . basename($e->getFile()) . ':' . $e->getLine(), 'error_code' => 'ERR_PHP_EXCEPTION'], JSON_UNESCAPED_UNICODE);
+    exit;
+});
+register_shutdown_function(function () {
+    $e = error_get_last();
+    if ($e && in_array($e['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+        if (!headers_sent()) { http_response_code(500); header('Content-Type: application/json; charset=utf-8'); }
+        echo json_encode(['status' => 'error', 'data' => null, 'message' => 'PHP fatal: ' . $e['message'] . ' @ ' . basename($e['file']) . ':' . $e['line'], 'error_code' => 'ERR_PHP_FATAL'], JSON_UNESCAPED_UNICODE);
+    }
+});
+
 session_start();
 require_once __DIR__ . '/OmniCoreClient.php';
 $CFG = require __DIR__ . '/config.php';
@@ -57,7 +73,11 @@ function isAllowedEndpoint(string $method, string $path): bool {
     return false;
 }
 
-$client   = new OmniCoreClient($CFG['API_BASE'], $CFG['API_PREFIX'], (int) ($CFG['HTTP_TIMEOUT'] ?? 20));
+function omniClient(array $CFG): OmniCoreClient {
+    static $c = null;
+    if ($c === null) { $c = new OmniCoreClient($CFG['API_BASE'], $CFG['API_PREFIX'], (int) ($CFG['HTTP_TIMEOUT'] ?? 20)); }
+    return $c;
+}
 $settings = readSettings($CFG);
 
 function publicConfig(array $CFG, array $settings): array {
@@ -96,6 +116,37 @@ function coreCall(OmniCoreClient $client, array $CFG, string $method, string $en
     return ['status' => $status, 'json' => json_decode($raw, true), 'raw' => $raw, 'error' => ''];
 }
 
+/**
+ * Login crudo contra el API CORE (v6.8): SIEMPRE con interlocutor_id (como los demás
+ * subsistemas). Construye el usuario desde los campos planos de la respuesta v6.8.
+ * $iid = null → login sin interlocutor_id (fallback para operarios sin sede de arranque).
+ */
+function rawLogin(array $CFG, string $username, string $password, ?int $iid): array {
+    $body = ['usuario' => $username, 'username' => $username, 'email' => $username, 'password' => $password];
+    if ($iid !== null && $iid > 0) { $body['interlocutor_id'] = $iid; }
+    $res = coreCall(omniClient($CFG), $CFG, 'POST', 'auth/login', $body, false);
+    if ($res['status'] === 0) { return ['ok' => false, 'error' => 'Sin conexión con el API CORE: ' . $res['error'], 'code' => 'ERR_OMNI_UNREACHABLE', 'status' => 502]; }
+    if (!is_array($res['json'])) {
+        $snip = function_exists('mb_substr') ? mb_substr(trim((string) $res['raw']), 0, 200) : substr(trim((string) $res['raw']), 0, 200);
+        return ['ok' => false, 'error' => 'Login sin JSON (HTTP ' . $res['status'] . '). ' . $snip, 'code' => 'ERR_NON_JSON', 'status' => $res['status'] ?: 502];
+    }
+    $j = $res['json'];
+    if (($j['status'] ?? '') !== 'success') { return ['ok' => false, 'error' => $j['message'] ?? 'Credenciales inválidas.', 'code' => $j['error_code'] ?? 'ERR_AUTH', 'status' => $res['status'] ?: 401]; }
+    $d = $j['data'] ?? $j;
+    $token = $d['token'] ?? $d['accessToken'] ?? $d['access_token'] ?? null;
+    if (!$token) { return ['ok' => false, 'error' => 'El API no devolvió token.', 'code' => 'ERR_NO_TOKEN', 'status' => 502]; }
+    $uid = (int) ($d['user_id'] ?? $d['id'] ?? 0);
+    $user = [
+        'id' => $uid, 'user_id' => $uid,
+        'username' => $d['username'] ?? $username,
+        'nombre'   => $d['nombre'] ?? $d['name'] ?? $d['username'] ?? $username,
+        'rol'      => $d['role'] ?? $d['rol'] ?? '',
+        'role'     => $d['role'] ?? $d['rol'] ?? '',
+        'tienda'   => $d['interlocutor_name'] ?? null,
+    ];
+    return ['ok' => true, 'token' => $token, 'user' => $user, 'permissions' => $d['permissions'] ?? [], 'interlocutor_id' => $d['interlocutor_id'] ?? $iid, 'interlocutor_name' => $d['interlocutor_name'] ?? null];
+}
+
 /* ═══════════════ PSEUDO-ENDPOINTS LOCALES ═══════════════ */
 
 if ($path === 'config') {
@@ -131,15 +182,13 @@ if ($path === 'select-interlocutor') {
     $_SESSION['omni_iid'] = $iid;
     $_SESSION['omni_iname'] = trim((string) ($payload['interlocutor_name'] ?? ('Sede ' . $iid)));
 
-    // v6.8 §2: re-autenticar con interlocutor_id para que el JWT lleve el ROL de ESTA sede.
+    // v6.8 §2: re-autenticar con la sede elegida para que el JWT lleve el ROL de ESA sede.
     if (!empty($_SESSION['omni_cred']['u'])) {
-        $u = $_SESSION['omni_cred']['u']; $p = $_SESSION['omni_cred']['p'];
-        $body = ['usuario' => $u, 'username' => $u, 'email' => $u, 'password' => $p, 'interlocutor_id' => $iid];
-        $rl = coreCall($client, $CFG, 'POST', 'auth/login', $body, false);
-        if ($rl['status'] >= 200 && $rl['status'] < 300 && is_array($rl['json'])) {
-            $d = $rl['json']['data'] ?? $rl['json'];
-            $tok = $d['token'] ?? $d['accessToken'] ?? $d['access_token'] ?? null;
-            if ($tok) { $_SESSION['omni_token'] = $tok; $_SESSION['omni_user'] = $client->normalizeUser($d['user'] ?? $d['profile'] ?? $d); }
+        $r = rawLogin($CFG, $_SESSION['omni_cred']['u'], $_SESSION['omni_cred']['p'], $iid);
+        if (!empty($r['ok'])) {
+            $_SESSION['omni_token'] = $r['token'];
+            $_SESSION['omni_user']  = $r['user'];
+            if (!empty($r['interlocutor_name'])) { $_SESSION['omni_iname'] = $r['interlocutor_name']; }
         }
         unset($_SESSION['omni_cred']); // el password ya no se necesita
     }
@@ -150,14 +199,17 @@ if ($path === 'auth/login') {
     $username = trim((string) ($payload['username'] ?? $payload['usuario'] ?? ''));
     $password = (string) ($payload['password'] ?? '');
     if ($username === '' || $password === '') { failure('Usuario y contraseña son obligatorios.', 'ERR_VALIDATION', 400); }
-    $r = $client->login($username, $password);
-    if (empty($r['ok'])) { failure($r['error'] ?? 'Credenciales inválidas.', $r['code'] ?? 'ERR_AUTH', 401); }
+    // v6.8: el login SIEMPRE lleva interlocutor_id. Arranque con el por defecto (para poder listar sedes);
+    // si ese interlocutor no aplica al usuario, fallback a login sin interlocutor_id.
+    $boot = (int) ($CFG['DEFAULT_INTERLOCUTOR_ID'] ?? 1);
+    $r = rawLogin($CFG, $username, $password, $boot);
+    if (empty($r['ok'])) { $r2 = rawLogin($CFG, $username, $password, null); if (!empty($r2['ok'])) { $r = $r2; } }
+    if (empty($r['ok'])) { failure($r['error'] ?? 'Credenciales inválidas.', $r['code'] ?? 'ERR_AUTH', $r['status'] ?? 401); }
     $_SESSION['omni_token'] = $r['token'];
-    $_SESSION['omni_user']  = $r['user'] ?? null;
-    // Guardado server-side (HttpOnly, nunca al navegador) para re-autenticar con la sede elegida (v6.8 §2).
-    $_SESSION['omni_cred']  = ['u' => $username, 'p' => $password];
-    unset($_SESSION['omni_iid'], $_SESSION['omni_iname']);
-    success(['user' => $r['user'] ?? null, 'permissions' => $r['permissions'] ?? []], 'Sesión iniciada');
+    $_SESSION['omni_user']  = $r['user'];
+    $_SESSION['omni_cred']  = ['u' => $username, 'p' => $password]; // server-side, para re-autenticar con la sede
+    unset($_SESSION['omni_iid'], $_SESSION['omni_iname']);          // la sede real se elige después
+    success(['user' => $r['user'], 'permissions' => $r['permissions']], 'Sesión iniciada');
 }
 
 /* ═══════════════ ENDPOINTS DEL API (allowlist) ═══════════════ */
@@ -168,7 +220,7 @@ if ($path !== 'health' && empty($_SESSION['omni_token'])) { failure('Sesión no 
 $isDiscovery = ($path === 'catalog/interlocutors');
 if (!$isDiscovery && $path !== 'health' && empty($_SESSION['omni_iid'])) { failure('Selecciona una sede antes de operar.', 'ERR_VALIDATION', 400); }
 
-$res = coreCall($client, $CFG, $method, $endpoint, $payload, !$isDiscovery);
+$res = coreCall(omniClient($CFG), $CFG, $method, $endpoint, $payload, !$isDiscovery);
 if ($res['status'] === 0) { failure('Error de red con el API CORE: ' . $res['error'], 'ERR_OMNI_UNREACHABLE', 502); }
 if ($res['status'] === 401) { $_SESSION = []; }
 

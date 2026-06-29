@@ -16,6 +16,10 @@ return [
     'API_PREFIX'  => '/api/v1',
     'HTTP_TIMEOUT' => 20,
 
+    // Interlocutor de arranque: el login SIEMPRE envía interlocutor_id (v6.8). Se usa solo
+    // para obtener un token con el que listar las sedes; luego se re-autentica con la elegida.
+    'DEFAULT_INTERLOCUTOR_ID' => 1,
+
     // ── Catálogo: SOLO productos fabricados por la empresa ──────────────────
     'SKU_ITEM_TYPES' => ['PT'],   // PT = Producto Terminado (empanadas, etc.). Sin comercializables.
 

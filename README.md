@@ -59,12 +59,23 @@ Allowlist: `auth/login`, `auth/me`, `catalog/{interlocutors,locations,skus}`,
 `inventory/{stock,transfer}`, `analytics/kardex`, `health`.
 Pseudo-endpoints: `config`, `settings`, `auth/logout`, `select-interlocutor`.
 
+## Diagnóstico de errores del proxy
+Si el API CORE o PHP fallan, `api/omni.php` ya **no** devuelve un 500 vacío: captura el fatal y
+responde JSON con el mensaje real (`ERR_PHP_FATAL` / `ERR_PHP_EXCEPTION` / `ERR_NON_JSON`),
+que el terminal muestra en pantalla. El cliente del API se construye de forma perezosa (el arranque
+`config` no depende de cURL ni del SDK).
+
 ## Notas
 - "Categorías aceptadas" = códigos `item_type` (lo que el catálogo permite filtrar). Si necesitas
   filtrar por familias/categorías del catálogo y el API expone ese filtro, se adapta.
 - Los KPIs muestran "API · tú" si el kardex trae el usuario por fila; si no, "API · sede".
 
 ## Compatibilidad API CORE v6.8
+- **Login siempre con `interlocutor_id`** (como los demás subsistemas): el login del SDK lo enviaba
+  sin `interlocutor_id`, lo que provocaba `Unknown column 'id' in 'ORDER BY'` para el SuperAdmin.
+  Ahora el proxy hace login **crudo** con un interlocutor de arranque (`DEFAULT_INTERLOCUTOR_ID`, por
+  defecto 1) para poder listar sedes, y **re-autentica con la sede elegida** (rol correcto en el JWT).
+  El usuario se construye desde los campos planos v6.8 (`user_id`, `role`, `interlocutor_name`).
 - **RBAC de pantallas (§16.1):** tras elegir sede, se consulta `rbac/subsystems/1004/my-screens`.
   `'*'` = acceso total; `[]` = **sin acceso** (se bloquea el terminal y vuelve a la selección de sede);
   el botón de reporte se muestra solo si el rol tiene la pantalla `historial`. Ante fallo de red no se bloquea.
