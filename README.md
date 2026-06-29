@@ -35,8 +35,23 @@ Aspecto visual heredado del subsistema [1002].
   (scoped a la sede) y calcula, para el usuario autenticado, unidades/traslados/SKUs de hoy y de
   7 días, y la última actividad. Si no hay conexión, usa un respaldo local de la sesión.
 
-## Formas de ingresar SKU
-Escáner HID · tecleo manual (SKU/EAN + Enter) · buscador por nombre/código sobre el catálogo cargado.
+## Formas de ingresar SKU y cantidad
+Escáner HID · tecleo manual (SKU/EAN + Enter) · **buscador en vivo contra TODO el catálogo del API**
+(`catalog/skus?q=`). La **cantidad** se puede teclear (campo junto al buscador) y ajustar con +/- en
+cada lectura; las lecturas del mismo SKU se fusionan.
+
+## Modelo de producción (orden de producción)
+Al **Registrar producción**, por cada SKU contado se crea automáticamente una **orden de producción**
+(`POST production/orders` con `recipe_id` mapeado desde el SKU + `interlocutor_id` de la sede),
+se **ejecuta** (`PUT …/execute`) y se **completa** (`PUT …/complete` con `quantity_real` y
+`output_location_id`). El `complete` incrementa stock y escribe el kardex con `movement_type='Produccion'`.
+Todas las llamadas incluyen el header `X-Subsystem-Id: 1004`. Si un SKU no tiene receta, no se registra
+(se avisa). El Outbox reanuda OPs a medio camino (guarda `orderId`/`executed`).
+
+## Reporte de producción
+Desde el menú → "Ver reporte": filtro por rango de fechas (o atajos Hoy / 7 / 30 días) y opción
+"Solo yo". Consulta `production/orders?status=completado` (con filtro de fecha) y muestra totales
+(unidades, movimientos, SKUs) y el desglose por producto.
 
 ## Contrato del proxy (Manual §6)
 `POST api/omni.php { endpoint, method, payload }` → envelope `{ status, data, message, error_code }`.
@@ -48,6 +63,13 @@ Pseudo-endpoints: `config`, `settings`, `auth/logout`, `select-interlocutor`.
 - "Categorías aceptadas" = códigos `item_type` (lo que el catálogo permite filtrar). Si necesitas
   filtrar por familias/categorías del catálogo y el API expone ese filtro, se adapta.
 - Los KPIs muestran "API · tú" si el kardex trae el usuario por fila; si no, "API · sede".
+
+## Compatibilidad API CORE v6.8
+- **RBAC de pantallas (§16.1):** tras elegir sede, se consulta `rbac/subsystems/1004/my-screens`.
+  `'*'` = acceso total; `[]` = **sin acceso** (se bloquea el terminal y vuelve a la selección de sede);
+  el botón de reporte se muestra solo si el rol tiene la pantalla `historial`. Ante fallo de red no se bloquea.
+- Los GET de referencia ya solo requieren JWT (desaparecen 403 de lectura): sin cambios.
+- **Rol por sede:** al elegir la sede, el proxy **re-autentica con `interlocutor_id`** para que el JWT lleve el rol de ESA sede (necesario para permisos de escritura como crear/completar OPs). Las credenciales se guardan solo en la sesión PHP (HttpOnly) entre el login y la selección de sede, y se borran tras re-autenticar.
 
 ---
 *API CORE documentado: v6.6.0 · subsistema [1004] Producción.*

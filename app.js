@@ -77,14 +77,49 @@
     var acc = [], types = (CFG && CFG.accepted_categories) || ['PT'];
     for (var i = 0; i < types.length; i++) {
       var off = 0, guard = 0;
-      while (guard++ < 25) {
-        var data = await omniFetch('catalog/skus?item_type=' + encodeURIComponent(types[i]) + '&limit=200&offset=' + off, 'GET');
-        var rows = rowsOf(data); acc = acc.concat(rows);
-        if (rows.length < 200) break; off += 200;
+      while (guard++ < 40) {
+        var qs = 'catalog/skus?item_type=' + encodeURIComponent(types[i]) + '&limit=50' + (off > 0 ? '&offset=' + off : '');
+        var rows;
+        try { rows = rowsOf(await omniFetch(qs, 'GET')); }
+        catch (e) { if (off === 0) throw e; break; }   // 1ª página propaga el error; siguientes, best-effort
+        acc = acc.concat(rows);
+        if (rows.length < 50) break; off += 50;
       }
     }
     Catalog.load(acc); Catalog.persist(acc); return Catalog.size();
   }
+
+  /* ════ 3b. RECETAS (SKU producido → recipe_id) ════ */
+  var Recipes = (function () {
+    var bySku = Object.create(null), count = 0;
+    return {
+      load: function (rows) {
+        bySku = Object.create(null); count = 0;
+        (rows || []).forEach(function (r) {
+          var sku = r.product_sku_id != null ? r.product_sku_id : (r.sku_id != null ? r.sku_id : r.product_id);
+          var rid = r.id != null ? r.id : r.recipe_id;
+          if (sku != null && rid != null) { bySku[String(sku)] = { recipeId: rid, name: r.product_name || r.product || r.name || null }; count++; }
+        });
+      },
+      forSku: function (itemId) { return bySku[String(itemId)] || null; },
+      size: function () { return count; }
+    };
+  })();
+  async function refreshRecipes() { try { Recipes.load(rowsOf(await omniFetch('production/recipes', 'GET'))); } catch (e) {} return Recipes.size(); }
+
+  /* ════ 3c. RBAC DE PANTALLAS (my-screens §16.1) ════ */
+  var screens = '*'; // '*' = todo; [] = sin acceso; ['historial',...] = solo esas
+  async function loadScreens() {
+    try {
+      var d = await omniFetch('rbac/subsystems/1004/my-screens', 'GET');
+      var s = d && d.screens;
+      if (s === '*' || s == null) screens = '*';
+      else if (Array.isArray(s)) screens = s;
+      else screens = '*';
+    } catch (e) { screens = '*'; } // ante error de red, no bloquear al operario
+  }
+  function canScreen(key) { return screens === '*' || (Array.isArray(screens) && screens.indexOf(key) >= 0); }
+  function hasAnyAccess() { return screens === '*' || (Array.isArray(screens) && screens.length > 0); }
 
   /* ════ 4. HISTORIAL LOCAL (registrado hoy + respaldo KPI) ════ */
   var History = {
@@ -94,32 +129,33 @@
     kpis: function () { var h = this.read(), s = new Date(); s.setHours(0, 0, 0, 0); var t0 = s.getTime(), u = 0, sk = {}, p = 0; h.forEach(function (x) { if (new Date(x.ts).getTime() >= t0) { p++; (x.lines || []).forEach(function (l) { u += l.qty; sk[l.itemId] = 1; }); } }); return { units: u, moves: p, skus: Object.keys(sk).length, last: h[0] ? h[0].ts : null }; }
   };
 
-  /* ════ 5. KPIs DESDE EL KARDEX DEL API ════ */
+  /* ════ 5. KPIs DESDE ÓRDENES DE PRODUCCIÓN COMPLETADAS ════ */
   function computeKpis(rows) {
     var uid = sessionUser && (sessionUser.id || sessionUser.user_id);
     var uname = sessionUser && (sessionUser.username || sessionUser.nombre || sessionUser.name);
-    var hasUser = rows.some(function (r) { return ('user_id' in r) || ('username' in r) || ('created_by' in r) || ('user_name' in r); });
-    function mine(r) { if (!hasUser) return true; if (uid != null && (String(r.user_id) === String(uid) || String(r.created_by) === String(uid))) return true; if (uname && (r.username === uname || r.user_name === uname)) return true; return false; }
+    var hasUser = rows.some(function (r) { return ('completed_by_user_id' in r) || ('registered_by' in r) || ('created_by_user_id' in r) || ('user_id' in r); });
+    function mine(r) { if (!hasUser) return true; var u = r.completed_by_user_id != null ? r.completed_by_user_id : (r.registered_by != null ? r.registered_by : (r.created_by_user_id != null ? r.created_by_user_id : r.user_id)); if (uid != null && String(u) === String(uid)) return true; if (uname && (r.username === uname || r.user_name === uname)) return true; return false; }
     var s = new Date(); s.setHours(0, 0, 0, 0); var t0 = s.getTime();
     var tU = 0, tM = 0, tS = {}, wU = 0, wM = 0, last = null;
     rows.forEach(function (r) {
       if (!mine(r)) return;
-      var q = Math.abs(Number(r.quantity != null ? r.quantity : (r.qty || 0))) || 0;
-      var ts = r.created_at || r.movement_date || r.date || r.timestamp; var tm = ts ? new Date(ts).getTime() : 0;
+      var q = Math.abs(Number(r.quantity_real != null ? r.quantity_real : (r.quantity != null ? r.quantity : 0))) || 0;
+      var ts = r.end_time || r.completed_at || r.created_at || r.start_time; var tm = ts ? new Date(ts).getTime() : 0;
       wU += q; wM++; if (!last || tm > new Date(last).getTime()) last = ts;
-      if (tm >= t0) { tU += q; tM++; var iid = r.item_id != null ? r.item_id : r.itemId; if (iid != null) tS[iid] = 1; }
+      if (tm >= t0) { tU += q; tM++; var sku = r.product_sku_id != null ? r.product_sku_id : r.recipe_id; if (sku != null) tS[sku] = 1; }
     });
     return { todayUnits: Math.round(tU), todayMoves: tM, todaySkus: Object.keys(tS).length, weekUnits: Math.round(wU), weekMoves: wM, last: last, hasUser: hasUser };
   }
   function renderKpis(k, src) {
     $('kpi-units').textContent = k.todayUnits || 0; $('kpi-moves').textContent = k.todayMoves || 0; $('kpi-skus').textContent = k.todaySkus || 0;
-    $('kpi-week').textContent = '7 días: ' + (k.weekUnits || 0) + ' u · ' + (k.weekMoves || 0) + ' traslados';
+    $('kpi-week').textContent = '7 días: ' + (k.weekUnits || 0) + ' u · ' + (k.weekMoves || 0) + ' OPs';
     $('kpi-last').textContent = k.last ? ('Última actividad: ' + new Date(k.last).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })) : 'Sin actividad reciente.';
     $('kpi-source').textContent = src === 'API' ? (k.hasUser === false ? 'API · sede' : 'API · tú') : 'local';
   }
   async function loadKpis() {
     try {
-      var data = await omniFetch('analytics/kardex?days=7&movement_category=TRASLADO', 'GET');
+      var from = new Date(); from.setDate(from.getDate() - 7);
+      var data = await omniFetch('production/orders?status=completado&date_from=' + fmtDate(from), 'GET');
       renderKpis(computeKpis(rowsOf(data)), 'API');
     } catch (e) {
       var k = History.kpis();
@@ -141,22 +177,27 @@
       sync.classList.add('hidden');
       if (q.length > 0 || !navigator.onLine) { $('offline-count').textContent = q.length; $('offline-label').textContent = navigator.onLine ? 'SINCRONIZANDO' : 'MODO OFFLINE'; off.classList.toggle('hidden', navigator.onLine && q.length === 0); } else off.classList.add('hidden');
     }
-    async function dispatch(p) {
-      var batchId = p.batchId;
-      if (batchId == null) {
-        var data = await omniFetch('inventory/stock?location_id=' + p.originLocationId + '&item_id=' + p.itemId + '&item_type=sku', 'GET');
-        var rows = rowsOf(data);
-        if (!rows.length) { var e = new Error('Sin stock en custodia: ' + (p.name || p.itemId)); e.rejected = true; throw e; }
-        batchId = rows[0].batch_id != null ? rows[0].batch_id : rows[0].batchId;
+    async function dispatch(p, save) {
+      // Ciclo de producción: crear OP → ejecutar → completar (con lote). Resumible.
+      if (p.orderId == null) {
+        var c = await omniFetch('production/orders', 'POST', { recipe_id: p.recipeId, interlocutor_id: p.interlocutorId, quantity_target: p.quantity });
+        p.orderId = (c && (c.id != null ? c.id : (c.order_id != null ? c.order_id : (c.data && c.data.id)))) || null;
+        if (p.orderId == null) { var e0 = new Error('La creación de la OP no devolvió id'); e0.rejected = true; throw e0; }
+        save();
       }
-      return omniFetch('inventory/transfer', 'POST', { location_id_origin: p.originLocationId, location_id_destination: p.destinationLocationId, batch_id: batchId, item_id: p.itemId, item_type: 'sku', quantity: p.quantity, movement_type: p.movementType || 'Traslado Interno' });
+      if (!p.executed) { await omniFetch('production/orders/' + p.orderId + '/execute', 'PUT', null); p.executed = true; save(); }
+      return omniFetch('production/orders/' + p.orderId + '/complete', 'PUT', { quantity_real: p.quantity, output_location_id: p.outputLocationId });
     }
     async function drain() {
       if (draining || frozen() || !navigator.onLine) { render(); return; }
       draining = true; render();
       try {
         var q = read();
-        while (q.length) { try { await dispatch(q[0]); } catch (e) { if (e.rejected) { setFrozen(e.message || 'Traslado rechazado'); Feedback.err(); break; } else break; } q.shift(); write(q); render(); }
+        while (q.length) {
+          try { await dispatch(q[0], function () { write(q); }); }
+          catch (e) { write(q); if (e.rejected) { setFrozen(e.message || 'Orden de producción rechazada'); Feedback.err(); break; } else break; }
+          q.shift(); write(q); render();
+        }
       } finally { draining = false; render(); if ($('drawer').classList.contains('open')) loadKpis(); }
     }
     return { push: function (p) { var q = read(); q.push(p); write(q); render(); drain(); }, drain: drain, render: render, frozen: frozen, resume: function () { clearFrozen(); render(); drain(); } };
@@ -208,7 +249,7 @@
     var sel = $('login-site'); if (!sel.value) { siteMsg('Seleccione una fábrica.', 'err'); Feedback.err(); return; }
     var opt = sel.options[sel.selectedIndex];
     siteMsg('Preparando terminal…', 'mute'); $('btn-enter').disabled = true;
-    try { var d = await omniFetch('select-interlocutor', 'POST', { interlocutor_id: parseInt(sel.value, 10), interlocutor_name: opt.getAttribute('data-name') }); activeSite = d.interlocutor; await startTerminal(); }
+    try { var d = await omniFetch('select-interlocutor', 'POST', { interlocutor_id: parseInt(sel.value, 10), interlocutor_name: opt.getAttribute('data-name') }); activeSite = d.interlocutor; if (d.user) { sessionUser = d.user; canConfigure = roleIsAdmin(); } await startTerminal(); }
     catch (e) { siteMsg('✗ ' + (e.message || 'No se pudo entrar'), 'err'); Feedback.err(); }
     finally { $('btn-enter').disabled = false; }
   }
@@ -217,18 +258,25 @@
   function locLabel(l) { var a = (l.area_type || '').replace(/_/g, ' '); var sp = [l.shelf, l.position].filter(Boolean).join(' '); var qr = l.qr_code_uid ? (' · ' + l.qr_code_uid) : ''; return ([a, sp].filter(Boolean).join(' ') || ('Ubicación ' + (l.id || l.location_id))) + qr; }
   async function loadLocations() {
     var data = await omniFetch('catalog/locations', 'GET'); locations = rowsOf(data);
-    var cp = new RegExp((CFG && CFG.custody_pattern) || 'producto_terminado', 'i'), tp = new RegExp((CFG && CFG.transit_pattern) || 'bodega', 'i');
-    custody = transit = null;
-    locations.forEach(function (l) { var a = (l.area_type || '').toString(), id = l.id || l.location_id; if (!custody && cp.test(a)) custody = { id: id, name: locLabel(l) }; if (!transit && tp.test(a)) transit = { id: id, name: locLabel(l) }; });
-    fillLocSelect($('drw-custody'), custody && custody.id); fillLocSelect($('drw-transit'), transit && transit.id);
+    var cp = new RegExp((CFG && CFG.custody_pattern) || 'producto_terminado', 'i');
+    // Ubicación de SALIDA del PT (output_location_id): zona de producto terminado de la sede; si no, su 1ª ubicación.
+    var out = null;
+    locations.forEach(function (l) { if (!out && cp.test((l.area_type || '').toString())) out = { id: l.id || l.location_id, name: locLabel(l) }; });
+    if (!out && locations.length) { var l0 = locations[0]; out = { id: l0.id || l0.location_id, name: locLabel(l0) }; }
+    custody = out; transit = out;
+    fillLocSelect($('drw-custody'), custody && custody.id);
   }
   function fillLocSelect(sel, current) { sel.innerHTML = '<option value="">— Seleccione —</option>'; locations.forEach(function (l) { var id = l.id || l.location_id; sel.insertAdjacentHTML('beforeend', '<option value="' + id + '"' + (String(id) === String(current) ? ' selected' : '') + '>' + locLabel(l) + '</option>'); }); }
-  function onLocChange() { var c = $('drw-custody'), t = $('drw-transit'); if (c.value) custody = { id: parseInt(c.value, 10), name: c.options[c.selectedIndex].textContent }; if (t.value) transit = { id: parseInt(t.value, 10), name: t.options[t.selectedIndex].textContent }; renderLocLine(); toast('Ubicaciones actualizadas.', 'ok'); }
-  function renderLocLine() { $('loc-custody').textContent = (custody && custody.name) || '— custodia —'; $('loc-transit').textContent = (transit && transit.name) || '— bodega —'; }
+  function onLocChange() { var c = $('drw-custody'); if (c.value) { custody = { id: parseInt(c.value, 10), name: c.options[c.selectedIndex].textContent }; transit = custody; } renderLocLine(); toast('Ubicación de salida actualizada.', 'ok'); }
+  function renderLocLine() {
+    $('loc-custody').textContent = 'Salida PT:';
+    $('loc-transit').textContent = (custody && custody.name) || '— sin ubicación —';
+  }
 
   /* ════ 10. TERMINAL ════ */
   async function startTerminal() {
     var u = sessionUser || {};
+    if (navigator.onLine) { await loadScreens(); if (!hasAnyAccess()) { siteMsg('Tu rol no tiene acceso a Producción en esta sede.', 'err'); showView('site-view'); Feedback.err(); return; } }
     $('prod-factory').textContent = (activeSite && activeSite.name) || 'Sede';
     $('prod-operator').textContent = u.nombre || u.name || u.username || 'Operario';
     $('prod-role').textContent = u.rol || u.role || '';
@@ -236,69 +284,121 @@
     showView('prod-view'); Scan.start(onScan); Outbox.render(); Outbox.drain(); siteMsg('', 'mute'); forceFocus();
     try { await loadLocations(); } catch (e) { toast('No se pudieron cargar ubicaciones.', 'warn'); }
     renderLocLine();
-    if (navigator.onLine) { try { await refreshCatalog(); } catch (e) { Catalog.restore(); } } else Catalog.restore();
+    if (navigator.onLine) { try { await refreshCatalog(); } catch (e) { Catalog.restore(); toast('Catálogo: ' + (e.message || 'no se pudo cargar'), 'warn'); } } else Catalog.restore();
+    if (navigator.onLine) { try { await refreshRecipes(); } catch (e) {} }
   }
   function forceFocus() { try { $('scan-trap').focus(); } catch (e) {} }
   function flashStage(kind) { var s = $('prod-stage'); s.classList.remove('ok', 'err'); void s.offsetWidth; s.classList.add(kind); setTimeout(function () { s.classList.remove('ok', 'err'); }, 260); }
   function totalUnits() { return batch.reduce(function (a, e) { return a + e.qty; }, 0); }
   function renderCounter() { $('prod-counter').textContent = totalUnits(); $('btn-conclude').disabled = batch.length === 0; }
 
-  function addItem(item, via) {
-    batch.push({ rid: 'r' + Date.now() + Math.random().toString(36).slice(2, 5), itemId: item.id, sku: item.sku, name: item.name, qty: 1, unit: item.unit });
+  function addItem(item, via, qty) {
+    qty = qty || 1;
+    var existing = batch.find(function (e) { return String(e.itemId) === String(item.id); });
+    if (existing) { existing.qty += qty; batch.splice(batch.indexOf(existing), 1); batch.push(existing); }
+    else batch.push({ rid: 'r' + Date.now() + Math.random().toString(36).slice(2, 5), itemId: item.id, sku: item.sku, name: item.name, qty: qty, unit: item.unit });
     flashStage('ok'); Feedback.ok();
     $('prod-last').className = 'text-base font-semibold min-h-[1.5rem] text-ok num';
-    $('prod-last').textContent = '✓ ' + item.name + '  +1 ' + item.unit + (via ? ' (' + via + ')' : '');
+    $('prod-last').textContent = '✓ ' + item.name + '  +' + qty + ' ' + item.unit + (via ? ' (' + via + ')' : '');
+    $('sku-qty').value = '1';
     renderCounter(); renderRecent();
   }
-  function onScan(code) { var item = Catalog.resolve(code); if (!item) { flashStage('err'); Feedback.err(); $('prod-last').className = 'text-base font-semibold min-h-[1.5rem] text-danger num'; $('prod-last').textContent = '✗ SKU inexistente: ' + code; return; } addItem(item); }
+  function onScan(code) { var item = Catalog.resolve(code); if (!item) { flashStage('err'); Feedback.err(); $('prod-last').className = 'text-base font-semibold min-h-[1.5rem] text-danger num'; $('prod-last').textContent = '✗ SKU inexistente: ' + code; return; } addItem(item, null, readQty()); }
+  function changeQty(rid, d) { var e = batch.find(function (x) { return x.rid === rid; }); if (!e) return; e.qty = Math.max(1, e.qty + d); Feedback.action(); renderCounter(); renderRecent(); forceFocus(); }
   function renderRecent() {
-    var wrap = $('prod-recent'), recent = batch.slice(-4).reverse();
+    var wrap = $('prod-recent'), recent = batch.slice(-6).reverse();
     if (!recent.length) { wrap.innerHTML = '<div class="text-ink-400 text-sm py-3 text-center">— Sin lecturas en el pallet —</div>'; return; }
     wrap.innerHTML = '';
     recent.forEach(function (e) {
-      var row = document.createElement('div'); row.className = 'flex items-center gap-3 bg-white border border-ink-200 rounded-xl p-3';
-      row.innerHTML = '<div class="flex-1 min-w-0"><div class="font-semibold text-ink-900 truncate">' + e.name + '</div><div class="text-ink-400 text-xs num truncate">' + (e.sku || ('#' + e.itemId)) + ' · +' + e.qty + ' ' + e.unit + '</div></div><button class="shrink-0 w-11 h-11 rounded-lg text-danger flex items-center justify-center" style="background:#fef2f2;" aria-label="Eliminar">✕</button>';
-      row.querySelector('button').addEventListener('click', function () { removeRead(e.rid); }); wrap.appendChild(row);
+      var row = document.createElement('div'); row.className = 'flex items-center gap-2 bg-white border border-ink-200 rounded-xl p-2.5';
+      row.innerHTML = '<div class="flex-1 min-w-0"><div class="font-semibold text-ink-900 truncate text-sm">' + e.name + '</div><div class="text-ink-400 text-xs num truncate">' + (e.sku || ('#' + e.itemId)) + ' · ' + e.unit + '</div></div>' +
+        '<div class="flex items-center gap-1 shrink-0">' +
+        '<button data-a="dec" class="w-9 h-9 rounded-lg bg-ink-100 text-ink-700 font-bold text-lg leading-none">−</button>' +
+        '<span class="w-9 text-center font-bold num">' + e.qty + '</span>' +
+        '<button data-a="inc" class="w-9 h-9 rounded-lg bg-ink-100 text-ink-700 font-bold text-lg leading-none">+</button>' +
+        '<button data-a="del" class="w-9 h-9 rounded-lg text-danger" style="background:#fef2f2;" aria-label="Eliminar">✕</button></div>';
+      row.querySelector('[data-a="dec"]').addEventListener('click', function () { changeQty(e.rid, -1); });
+      row.querySelector('[data-a="inc"]').addEventListener('click', function () { changeQty(e.rid, 1); });
+      row.querySelector('[data-a="del"]').addEventListener('click', function () { removeRead(e.rid); });
+      wrap.appendChild(row);
     });
   }
   function removeRead(rid) { var i = batch.findIndex(function (e) { return e.rid === rid; }); if (i >= 0) { batch.splice(i, 1); Feedback.action(); renderCounter(); renderRecent(); forceFocus(); } }
 
-  /* ════ 11. BUSCADOR / TECLEO ════ */
-  function renderSearch() {
-    var q = $('sku-search').value, box = $('sku-results'), matches = Catalog.search(q, 8);
-    if (!q || !matches.length) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+  /* ════ 11. BUSCADOR (todos los SKU del API) / TECLEO + CANTIDAD ════ */
+  function mapSku(p) { return { id: p.id, sku: (p.sku_final_code || p.sku) != null ? String(p.sku_final_code || p.sku) : null, ean: p.ean != null ? String(p.ean) : null, name: p.name || p.nombre || p.sku_final_code || ('SKU ' + p.id), unit: (p.unit_of_measure || 'ud').toString().toLowerCase() }; }
+  function readQty() { var v = parseInt($('sku-qty').value, 10); if (!v || v < 1) v = 1; return v; }
+  var searchTimer = null, searchSeq = 0;
+  function renderResults(items) {
+    var box = $('sku-results');
+    if (!items || !items.length) { box.classList.add('hidden'); box.innerHTML = ''; return; }
     box.innerHTML = '';
-    matches.forEach(function (it) {
+    items.slice(0, 15).forEach(function (it) {
       var b = document.createElement('button'); b.className = 'w-full text-left px-4 py-3 border-b border-ink-100 hover:bg-ink-50';
       b.innerHTML = '<div class="font-semibold text-ink-900 truncate">' + it.name + '</div><div class="text-ink-400 text-xs num truncate">' + (it.sku || '') + (it.ean ? ' · ' + it.ean : '') + ' · ' + it.unit + '</div>';
-      b.addEventListener('click', function () { addItem(it, 'buscador'); $('sku-search').value = ''; renderSearch(); $('sku-search').focus(); }); box.appendChild(b);
+      b.addEventListener('click', function () { addItem(it, 'buscador', readQty()); $('sku-search').value = ''; renderResults([]); $('sku-search').focus(); });
+      box.appendChild(b);
     });
     box.classList.remove('hidden');
   }
-  function onSearchEnter() {
+  function onSearchInput() {
+    var q = $('sku-search').value.trim();
+    if (!q) { renderResults([]); return; }
+    renderResults(Catalog.search(q, 8));          // local inmediato
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(function () { remoteSearch(q); }, 280); // refina con el API (todos los SKU)
+  }
+  async function remoteSearch(q) {
+    if (!navigator.onLine) return;
+    var seq = ++searchSeq;
+    try {
+      var data = await omniFetch('catalog/skus?q=' + encodeURIComponent(q) + '&limit=25', 'GET');
+      if (seq !== searchSeq || $('sku-search').value.trim() !== q) return;
+      var items = rowsOf(data).map(mapSku);
+      if (items.length) renderResults(items);
+    } catch (e) {}
+  }
+  async function onSearchEnter() {
     var q = $('sku-search').value.trim(); if (!q) return;
     var exact = Catalog.resolve(q);
-    if (exact) { addItem(exact, 'manual'); $('sku-search').value = ''; renderSearch(); return; }
-    var m = Catalog.search(q, 2);
-    if (m.length === 1) { addItem(m[0], 'buscador'); $('sku-search').value = ''; renderSearch(); }
-    else if (!m.length) { Feedback.err(); toast('Sin coincidencias para "' + q + '".', 'err'); }
+    if (exact) { addItem(exact, 'manual', readQty()); $('sku-search').value = ''; renderResults([]); return; }
+    try {
+      var data = await omniFetch('catalog/skus?q=' + encodeURIComponent(q) + '&limit=10', 'GET');
+      var items = rowsOf(data).map(mapSku);
+      var ex = items.filter(function (it) { return it.sku === q || it.ean === q; });
+      if (ex.length) { addItem(ex[0], 'manual', readQty()); $('sku-search').value = ''; renderResults([]); return; }
+      if (items.length === 1) { addItem(items[0], 'buscador', readQty()); $('sku-search').value = ''; renderResults([]); return; }
+      if (items.length) { renderResults(items); }
+      else { Feedback.err(); toast('Sin coincidencias para "' + q + '".', 'err'); }
+    } catch (e) { Feedback.err(); toast(e.network ? 'Sin conexión con el servidor.' : (e.message || 'No se pudo buscar'), 'err'); }
   }
 
   /* ════ 12. CONCLUIR ════ */
   function concludeTransfer() {
     if (!batch.length) return;
     if (Outbox.frozen()) { toast('Sincronización detenida: requiere supervisor.', 'err'); Feedback.err(); return; }
-    if (!custody || !custody.id || !transit || !transit.id) { toast('Configura las ubicaciones en el menú.', 'err'); Feedback.err(); openDrawer(); return; }
+    if (!custody || !custody.id) { toast('Esta sede no tiene ubicación de salida en OMNI.', 'err'); Feedback.err(); return; }
+    if (!activeSite || !activeSite.id) { toast('Sin sede activa.', 'err'); Feedback.err(); return; }
     var byItem = {};
     batch.forEach(function (e) { var k = String(e.itemId); if (!byItem[k]) byItem[k] = { itemId: e.itemId, sku: e.sku, name: e.name, quantity: 0, unit: e.unit }; byItem[k].quantity += e.qty; });
     var lines = Object.keys(byItem).map(function (k) { return byItem[k]; });
-    lines.forEach(function (it) { Outbox.push({ idempotencyKey: 'TX-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8), timestamp: new Date().toISOString(), itemId: it.itemId, name: it.name, quantity: it.quantity, unit: it.unit, originLocationId: custody.id, destinationLocationId: transit.id, movementType: (CFG && CFG.movement_type) || 'Traslado Interno' }); });
-    History.add({ palletId: 'P-' + Date.now(), ts: new Date().toISOString(), sede: activeSite && activeSite.name, lines: lines.map(function (l) { return { itemId: l.itemId, sku: l.sku, name: l.name, qty: l.quantity, unit: l.unit }; }), totalUnits: lines.reduce(function (a, l) { return a + l.quantity; }, 0) });
-    Feedback.ok(); flashStage('ok');
-    $('prod-last').className = 'text-base font-semibold min-h-[1.5rem] text-ok num';
-    $('prod-last').textContent = '→ Traspaso despachado (' + lines.length + ' SKU)';
-    batch = []; renderCounter(); renderRecent(); forceFocus();
-    toast('Traslado en cola de envío (' + lines.length + ' SKU).', 'ok');
+    var queued = [], missing = [];
+    lines.forEach(function (it) {
+      var rec = Recipes.forSku(it.itemId);
+      if (!rec) { missing.push(it.name); return; }
+      Outbox.push({ idempotencyKey: 'OP-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8), timestamp: new Date().toISOString(), recipeId: rec.recipeId, interlocutorId: activeSite.id, quantity: it.quantity, outputLocationId: custody.id, itemId: it.itemId, sku: it.sku, name: it.name, unit: it.unit, orderId: null, executed: false });
+      queued.push(it);
+    });
+    if (queued.length) {
+      History.add({ palletId: 'P-' + Date.now(), ts: new Date().toISOString(), sede: activeSite && activeSite.name, lines: queued.map(function (l) { return { itemId: l.itemId, sku: l.sku, name: l.name, qty: l.quantity, unit: l.unit }; }), totalUnits: queued.reduce(function (a, l) { return a + l.quantity; }, 0) });
+      Feedback.ok(); flashStage('ok');
+      $('prod-last').className = 'text-base font-semibold min-h-[1.5rem] text-ok num';
+      $('prod-last').textContent = '→ Producción registrada (' + queued.length + ' producto' + (queued.length > 1 ? 's' : '') + ')';
+      toast('Órdenes de producción en cola (' + queued.length + ').', 'ok');
+    }
+    if (missing.length) { Feedback.err(); toast('Sin receta, no se registran: ' + missing.join(', '), 'warn'); }
+    if (queued.length) { batch = batch.filter(function (e) { return missing.indexOf(e.name) >= 0; }); renderCounter(); renderRecent(); }
+    forceFocus();
   }
 
   /* ════ 13. DRAWER ════ */
@@ -306,6 +406,7 @@
   function closeDrawer() { $('drawer').classList.remove('open'); $('drawer-scrim').classList.add('hidden'); forceFocus(); }
   function refreshDrawer() {
     $('cfg-section').classList.toggle('hidden', !canConfigure);
+    $('btn-report').style.display = canScreen('historial') ? '' : 'none';
     catState = ((CFG && CFG.accepted_categories) || ['PT']).slice(); renderCats(); catMsg('', 'mute');
     var h = History.read().slice(0, 20), wrap = $('drw-history');
     if (!h.length) { wrap.innerHTML = '<div class="text-ink-400 text-sm">— Nada registrado en esta sesión —</div>'; }
@@ -349,6 +450,60 @@
     } catch (e) { catMsg('✗ ' + (e.message || 'Error al guardar'), 'err'); Feedback.err(); }
   }
 
+  /* ════ 14b. REPORTE DE PRODUCCIÓN (filtro de fecha) ════ */
+  function fmtDate(d) { return d.toISOString().slice(0, 10); }
+  function repMsg(t, kind) { var el = $('rep-msg'); el.className = 'text-xs min-h-[1rem] mt-2 ' + (kind === 'err' ? 'text-danger' : 'text-ink-400'); el.textContent = t || ''; }
+  function openReport() {
+    closeDrawer();
+    var t = new Date(), f = new Date(); f.setDate(f.getDate() - 6);
+    $('rep-to').value = fmtDate(t); $('rep-from').value = fmtDate(f);
+    $('rep-summary').classList.add('hidden'); $('rep-body').innerHTML = ''; repMsg('');
+    $('report-modal').classList.remove('hidden'); $('report-modal').classList.add('flex');
+  }
+  function closeReport() { $('report-modal').classList.add('hidden'); $('report-modal').classList.remove('flex'); forceFocus(); }
+  function quickRange(days) { var t = new Date(), f = new Date(); f.setDate(f.getDate() - days); $('rep-to').value = fmtDate(t); $('rep-from').value = fmtDate(f); }
+  async function generateReport() {
+    var from = $('rep-from').value, to = $('rep-to').value;
+    if (!from || !to) { repMsg('Selecciona el rango de fechas.', 'err'); return; }
+    var fromT = new Date(from + 'T00:00:00').getTime(), toT = new Date(to + 'T23:59:59').getTime();
+    if (fromT > toT) { repMsg('La fecha "desde" es posterior a "hasta".', 'err'); return; }
+    repMsg('Consultando órdenes de producción…'); $('rep-generate').disabled = true;
+    try {
+      var data = await omniFetch('production/orders?status=completado&date_from=' + from + '&date_to=' + to, 'GET');
+      renderReport(rowsOf(data), fromT, toT, $('rep-mine').checked);
+    } catch (e) { repMsg('✗ ' + (e.message || 'No se pudo generar el reporte'), 'err'); }
+    finally { $('rep-generate').disabled = false; }
+  }
+  function renderReport(rows, fromT, toT, mineOnly) {
+    var uid = sessionUser && (sessionUser.id || sessionUser.user_id), uname = sessionUser && (sessionUser.username || sessionUser.nombre || sessionUser.name);
+    var hasUser = rows.some(function (r) { return ('completed_by_user_id' in r) || ('registered_by' in r) || ('created_by_user_id' in r) || ('user_id' in r); });
+    function mine(r) { if (!hasUser) return false; var u = r.completed_by_user_id != null ? r.completed_by_user_id : (r.registered_by != null ? r.registered_by : (r.created_by_user_id != null ? r.created_by_user_id : r.user_id)); if (uid != null && String(u) === String(uid)) return true; if (uname && (r.username === uname || r.user_name === uname)) return true; return false; }
+    var byItem = {}, units = 0, moves = 0;
+    rows.forEach(function (r) {
+      var ts = r.end_time || r.completed_at || r.created_at || r.start_time; var tm = ts ? new Date(ts).getTime() : 0;
+      if (tm && (tm < fromT || tm > toT)) return;
+      if (mineOnly && hasUser && !mine(r)) return;
+      var q = Math.abs(Number(r.quantity_real != null ? r.quantity_real : (r.quantity != null ? r.quantity : 0))) || 0;
+      var sku = r.product_sku_id != null ? r.product_sku_id : r.recipe_id;
+      var nm = r.product || r.product_name || r.name || ((Recipes.forSku(sku) || {}).name) || ('SKU ' + sku);
+      var key = String(sku != null ? sku : nm);
+      if (!byItem[key]) byItem[key] = { name: nm, units: 0, moves: 0 };
+      byItem[key].units += q; byItem[key].moves++; units += q; moves++;
+    });
+    var list = Object.keys(byItem).map(function (k) { return byItem[k]; }).sort(function (a, b) { return b.units - a.units; });
+    $('rep-units').textContent = Math.round(units); $('rep-moves').textContent = moves; $('rep-skus').textContent = list.length;
+    $('rep-summary').classList.remove('hidden');
+    var body = $('rep-body');
+    if (!list.length) { body.innerHTML = '<div class="text-ink-400 text-sm text-center py-4">Sin producción completada en el rango.</div>'; repMsg(''); return; }
+    body.innerHTML = '<div class="text-ink-400 text-[11px] uppercase tracking-wider mb-1">Por producto</div>';
+    list.forEach(function (it) {
+      var div = document.createElement('div'); div.className = 'flex items-center justify-between bg-ink-50 rounded-lg px-3 py-2';
+      div.innerHTML = '<span class="text-sm truncate pr-2">' + it.name + '</span><span class="text-sm font-bold text-brand num shrink-0">' + Math.round(it.units) + ' u · ' + it.moves + ' OP</span>';
+      body.appendChild(div);
+    });
+    repMsg((mineOnly && hasUser ? 'Solo tu producción.' : 'Toda la sede.') + (hasUser ? '' : ' (las OPs no traen usuario por fila)'));
+  }
+
   /* ════ 15. DESBLOQUEO / LOGOUT ════ */
   async function doUnfreeze() {
     var u = $('uf-user').value.trim(), p = $('uf-pass').value, msg = $('uf-msg');
@@ -378,16 +533,19 @@
     $('drawer-scrim').addEventListener('click', closeDrawer);
     $('btn-logout').addEventListener('click', logout);
     $('drw-custody').addEventListener('change', onLocChange);
-    $('drw-transit').addEventListener('change', onLocChange);
-    $('sku-search').addEventListener('input', renderSearch);
+    $('sku-search').addEventListener('input', onSearchInput);
     $('sku-search').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); onSearchEnter(); } });
     $('cat-add').addEventListener('click', addCat);
     $('cat-input').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addCat(); } });
     $('cat-save').addEventListener('click', saveCats);
+    $('btn-report').addEventListener('click', openReport);
+    $('report-close').addEventListener('click', closeReport);
+    $('rep-generate').addEventListener('click', generateReport);
+    Array.prototype.forEach.call(document.querySelectorAll('.rep-quick'), function (b) { b.addEventListener('click', function () { quickRange(parseInt(b.getAttribute('data-range'), 10)); }); });
     $('btn-unfreeze').addEventListener('click', function () { $('unfreeze-modal').classList.remove('hidden'); $('unfreeze-modal').classList.add('flex'); });
     $('uf-cancel').addEventListener('click', function () { $('unfreeze-modal').classList.add('hidden'); $('unfreeze-modal').classList.remove('flex'); });
     $('uf-ok').addEventListener('click', doUnfreeze);
-    document.addEventListener('pointerup', function () { if ($('prod-view').classList.contains('active') && !$('drawer').classList.contains('open') && !document.querySelector('#unfreeze-modal.flex') && document.activeElement !== $('sku-search')) setTimeout(forceFocus, 30); });
+    document.addEventListener('pointerup', function () { if ($('prod-view').classList.contains('active') && !$('drawer').classList.contains('open') && !document.querySelector('#unfreeze-modal.flex') && !document.querySelector('#report-modal.flex') && document.activeElement !== $('sku-search') && document.activeElement !== $('sku-qty')) setTimeout(forceFocus, 30); });
     window.addEventListener('online', function () { Outbox.render(); Outbox.drain(); });
     window.addEventListener('offline', function () { Outbox.render(); });
   }

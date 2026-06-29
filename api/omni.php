@@ -45,10 +45,17 @@ $payload  = (isset($in['payload']) && is_array($in['payload'])) ? $in['payload']
 $path     = strtok($endpoint, '?');
 if ($endpoint === '') { failure('Falta el campo "endpoint".', 'ERR_VALIDATION', 400); }
 
-$ALLOW = [
-    'GET'  => ['auth/me', 'catalog/interlocutors', 'catalog/locations', 'catalog/skus', 'inventory/stock', 'analytics/kardex', 'health'],
-    'POST' => ['auth/login', 'inventory/transfer'],
-];
+function isAllowedEndpoint(string $method, string $path): bool {
+    $exact = [
+        'GET'  => ['auth/me', 'catalog/interlocutors', 'catalog/locations', 'catalog/skus', 'inventory/stock', 'analytics/kardex', 'production/recipes', 'production/orders', 'health'],
+        'POST' => ['auth/login', 'inventory/transfer', 'production/orders'],
+    ];
+    if (isset($exact[$method]) && in_array($path, $exact[$method], true)) return true;
+    if ($method === 'GET' && preg_match('#^rbac/subsystems/\d+/my-screens$#', $path)) return true;     // RBAC pantallas (§16.1)
+    if ($method === 'GET' && preg_match('#^production/orders/\d+$#', $path)) return true;           // detalle OP
+    if ($method === 'PUT' && preg_match('#^production/orders/\d+/(execute|complete)$#', $path)) return true; // ejecutar/completar
+    return false;
+}
 
 $client   = new OmniCoreClient($CFG['API_BASE'], $CFG['API_PREFIX'], (int) ($CFG['HTTP_TIMEOUT'] ?? 20));
 $settings = readSettings($CFG);
@@ -75,7 +82,7 @@ function isAdminish(): bool {
 }
 
 function coreCall(OmniCoreClient $client, array $CFG, string $method, string $endpoint, ?array $payload, bool $injectIid): array {
-    $headers = ['Accept: application/json'];
+    $headers = ['Accept: application/json', 'X-Subsystem-Id: 1004'];
     if (!empty($_SESSION['omni_token'])) { $headers[] = 'Authorization: Bearer ' . $_SESSION['omni_token']; }
     if ($injectIid && !empty($_SESSION['omni_iid'])) { $headers[] = 'X-Interlocutor-Id: ' . $_SESSION['omni_iid']; }
 
@@ -85,8 +92,8 @@ function coreCall(OmniCoreClient $client, array $CFG, string $method, string $en
     $opt[CURLOPT_HTTPHEADER] = $headers;
     curl_setopt_array($ch, $opt);
     $raw = curl_exec($ch); $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE); $err = curl_error($ch); curl_close($ch);
-    if ($raw === false) { return ['status' => 0, 'json' => null, 'error' => $err]; }
-    return ['status' => $status, 'json' => json_decode($raw, true), 'error' => ''];
+    if ($raw === false) { return ['status' => 0, 'json' => null, 'raw' => '', 'error' => $err]; }
+    return ['status' => $status, 'json' => json_decode($raw, true), 'raw' => $raw, 'error' => ''];
 }
 
 /* ═══════════════ PSEUDO-ENDPOINTS LOCALES ═══════════════ */
@@ -123,7 +130,20 @@ if ($path === 'select-interlocutor') {
     if ($iid <= 0) { failure('interlocutor_id inválido.', 'ERR_VALIDATION', 400); }
     $_SESSION['omni_iid'] = $iid;
     $_SESSION['omni_iname'] = trim((string) ($payload['interlocutor_name'] ?? ('Sede ' . $iid)));
-    success(['interlocutor' => activeInterlocutor()], 'Sede activa establecida');
+
+    // v6.8 §2: re-autenticar con interlocutor_id para que el JWT lleve el ROL de ESTA sede.
+    if (!empty($_SESSION['omni_cred']['u'])) {
+        $u = $_SESSION['omni_cred']['u']; $p = $_SESSION['omni_cred']['p'];
+        $body = ['usuario' => $u, 'username' => $u, 'email' => $u, 'password' => $p, 'interlocutor_id' => $iid];
+        $rl = coreCall($client, $CFG, 'POST', 'auth/login', $body, false);
+        if ($rl['status'] >= 200 && $rl['status'] < 300 && is_array($rl['json'])) {
+            $d = $rl['json']['data'] ?? $rl['json'];
+            $tok = $d['token'] ?? $d['accessToken'] ?? $d['access_token'] ?? null;
+            if ($tok) { $_SESSION['omni_token'] = $tok; $_SESSION['omni_user'] = $client->normalizeUser($d['user'] ?? $d['profile'] ?? $d); }
+        }
+        unset($_SESSION['omni_cred']); // el password ya no se necesita
+    }
+    success(['interlocutor' => activeInterlocutor(), 'user' => $_SESSION['omni_user'] ?? null], 'Sede activa establecida');
 }
 
 if ($path === 'auth/login') {
@@ -134,14 +154,15 @@ if ($path === 'auth/login') {
     if (empty($r['ok'])) { failure($r['error'] ?? 'Credenciales inválidas.', $r['code'] ?? 'ERR_AUTH', 401); }
     $_SESSION['omni_token'] = $r['token'];
     $_SESSION['omni_user']  = $r['user'] ?? null;
+    // Guardado server-side (HttpOnly, nunca al navegador) para re-autenticar con la sede elegida (v6.8 §2).
+    $_SESSION['omni_cred']  = ['u' => $username, 'p' => $password];
     unset($_SESSION['omni_iid'], $_SESSION['omni_iname']);
     success(['user' => $r['user'] ?? null, 'permissions' => $r['permissions'] ?? []], 'Sesión iniciada');
 }
 
 /* ═══════════════ ENDPOINTS DEL API (allowlist) ═══════════════ */
 
-$allowedForMethod = $ALLOW[$method] ?? [];
-if (!in_array($path, $allowedForMethod, true)) { failure('Endpoint no permitido: ' . $method . ' ' . $path, 'ERR_RBAC', 403); }
+if (!isAllowedEndpoint($method, $path)) { failure('Endpoint no permitido: ' . $method . ' ' . $path, 'ERR_RBAC', 403); }
 if ($path !== 'health' && empty($_SESSION['omni_token'])) { failure('Sesión no iniciada o expirada.', 'ERR_AUTH', 401); }
 
 $isDiscovery = ($path === 'catalog/interlocutors');
@@ -151,5 +172,13 @@ $res = coreCall($client, $CFG, $method, $endpoint, $payload, !$isDiscovery);
 if ($res['status'] === 0) { failure('Error de red con el API CORE: ' . $res['error'], 'ERR_OMNI_UNREACHABLE', 502); }
 if ($res['status'] === 401) { $_SESSION = []; }
 
-$body = is_array($res['json']) ? $res['json'] : ['status' => 'error', 'data' => null, 'message' => 'Respuesta no-JSON del API', 'error_code' => 'ERR_INTERNAL'];
-reply($body, $res['status'] ?: 200);
+if (is_array($res['json'])) { reply($res['json'], $res['status'] ?: 200); }
+
+// El API no devolvió JSON: surface el cuerpo real para diagnosticar (HTML/500/etc).
+$snippet = trim((string) ($res['raw'] ?? ''));
+$snippet = function_exists('mb_substr') ? mb_substr($snippet, 0, 300) : substr($snippet, 0, 300);
+failure(
+    'El API CORE respondió sin JSON (HTTP ' . $res['status'] . ' en ' . $path . '). ' . ($snippet !== '' ? 'Inicio: ' . $snippet : '(respuesta vacía)'),
+    'ERR_NON_JSON',
+    $res['status'] >= 400 ? $res['status'] : 502
+);
