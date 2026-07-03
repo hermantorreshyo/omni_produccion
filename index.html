@@ -32,6 +32,91 @@
     #drawer { transition: transform .25s ease; transform: translateX(100%); }
     #drawer.open { transform: translateX(0); }
     .cat-chip { display:inline-flex; align-items:center; gap:.35rem; }
+
+    /* ════ MODO VISUAL (rejilla de productos) ════ */
+    :root{ --pvbar:92px; }
+    #prod-view.active{ display:flex; }
+    .pv-body{ flex:1; display:grid; grid-template-columns:1fr; min-height:0; overflow:hidden; }
+    @media(min-width:860px){ .pv-body{ grid-template-columns:1fr minmax(300px,372px); } }
+    .pv-products{ min-height:0; display:flex; flex-direction:column; overflow:hidden; }
+    .pv-filters{ display:flex; gap:8px; padding:10px 14px 2px; flex:none; }
+    .pv-search{ position:relative; flex:1; }
+    .pv-search svg{ position:absolute; left:13px; top:50%; transform:translateY(-50%); }
+    .pv-search input{ width:100%; height:48px; border:2px solid #e2e8f0; border-radius:13px; background:#fff; padding:0 12px 0 42px; font-size:16px; font-weight:500; }
+    .pv-results{ position:absolute; z-index:30; margin-top:4px; width:100%; background:#fff; border:1px solid #e2e8f0; border-radius:12px; box-shadow:0 12px 28px -16px rgba(15,23,42,.4); overflow:hidden; max-height:18rem; overflow-y:auto; }
+    .pv-qty{ width:72px; height:48px; border:2px solid #e2e8f0; border-radius:13px; background:#fff; text-align:center; font-size:16px; font-weight:700; }
+    .pv-chips{ display:flex; gap:8px; overflow-x:auto; padding:8px 14px 8px; flex:none; }
+    .pv-chips::-webkit-scrollbar{ display:none; }
+    .pv-chip{ flex:none; height:38px; padding:0 15px; border-radius:999px; background:#fff; border:2px solid #e2e8f0; font-weight:700; font-size:13.5px; color:#64748b; white-space:nowrap; }
+    .pv-chip[aria-pressed="true"]{ background:#0f172a; color:#fff; border-color:#0f172a; }
+    .pv-status{ font-size:12.5px; font-weight:600; color:#94a3b8; padding:2px 16px 0; flex:none; min-height:18px; transition:color .15s; }
+    .pv-status.ok{ color:#10b981; } .pv-status.err{ color:#ef4444; }
+    .pv-gridwrap{ flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; padding:6px 14px 18px; }
+    .pv-eyebrow{ font-size:11px; font-weight:800; letter-spacing:1.4px; text-transform:uppercase; color:#94a3b8; margin:10px 4px 8px; }
+    .pv-grid{ display:grid; gap:10px; grid-template-columns:repeat(2,1fr); }
+    @media(min-width:520px){ .pv-grid{ grid-template-columns:repeat(3,1fr);} }
+    @media(min-width:860px){ .pv-grid{ grid-template-columns:repeat(2,1fr);} }
+    @media(min-width:1040px){ .pv-grid{ grid-template-columns:repeat(3,1fr);} }
+    @media(min-width:1320px){ .pv-grid{ grid-template-columns:repeat(4,1fr);} }
+    .pv-tile{ position:relative; border-radius:16px; border:1.5px solid #e8eef5; background:var(--tc,#fff); padding:12px 10px; min-height:116px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; text-align:center; box-shadow:0 8px 22px -18px rgba(15,23,42,.5); transition:transform .08s; }
+    .pv-tile:active{ transform:scale(.95); }
+    .pv-tile.bump{ animation:pvbump .3s ease; }
+    @keyframes pvbump{ 0%{transform:scale(1)} 35%{transform:scale(1.06)} 100%{transform:scale(1)} }
+    .pv-tile .pv-em{ font-size:40px; line-height:1; filter:drop-shadow(0 3px 4px rgba(0,0,0,.1)); }
+    .pv-tile .pv-nm{ font-weight:700; font-size:13.5px; line-height:1.12; color:#1e293b; }
+    .pv-tile .pv-sku{ font-size:10px; color:#94a3b8; font-weight:600; }
+    .pv-tile .pv-badge{ position:absolute; top:-9px; right:-9px; min-width:32px; height:32px; padding:0 7px; border-radius:999px; background:#642a72; color:#fff; font-weight:800; font-size:15px; display:grid; place-items:center; box-shadow:0 4px 10px -2px rgba(100,42,114,.5); transform:scale(0); transition:transform .15s cubic-bezier(.2,1.4,.4,1); }
+    .pv-tile.has .pv-badge{ transform:scale(1); }
+    .pv-tile.lock{ opacity:.5; }
+    .pv-tile .pv-nr{ position:absolute; top:7px; left:7px; font-size:9px; font-weight:800; color:#94a3b8; background:#fff; border:1px solid #e2e8f0; border-radius:6px; padding:2px 4px; }
+    .pv-empty{ padding:34px 14px; text-align:center; color:#94a3b8; font-weight:600; }
+
+    .pv-summary{ background:#fff; border-left:1px solid #e2e8f0; display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+    .pv-grab{ display:none; }
+    .pv-sumhead{ padding:14px 18px 6px; flex:none; }
+    .pv-eyebrow2{ font-size:11px; font-weight:800; letter-spacing:1.4px; text-transform:uppercase; color:#94a3b8; margin:0 0 4px; }
+    .pv-loc{ font-size:10.5px; color:#94a3b8; font-weight:600; text-transform:none; letter-spacing:0; }
+    .pv-crow{ display:flex; align-items:baseline; gap:12px; }
+    .pv-count{ font-size:56px; font-weight:800; line-height:.9; color:#642a72; }
+    .pv-count.pulse{ animation:pvpulse .3s ease; }
+    @keyframes pvpulse{ 0%{transform:scale(1)} 40%{transform:scale(1.12);color:#10b981} 100%{transform:scale(1)} }
+    .pv-clbl{ font-weight:700; font-size:13px; color:#64748b; text-transform:uppercase; letter-spacing:.4px; line-height:1.1; }
+    .pv-slist{ flex:1; overflow-y:auto; padding:4px 12px 8px; min-height:0; }
+    .pv-li{ display:flex; align-items:center; gap:8px; padding:8px 4px; }
+    .pv-li+.pv-li{ border-top:1px solid #eef2f7; }
+    .pv-li .pv-lem{ font-size:23px; flex:none; }
+    .pv-li .pv-lnm{ flex:1; min-width:0; }
+    .pv-li .pv-lnm b{ display:block; font-weight:700; font-size:13.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .pv-li .pv-lnm small{ color:#94a3b8; font-weight:600; font-size:11px; }
+    .pv-stp{ display:flex; align-items:center; gap:5px; flex:none; }
+    .pv-stp button{ width:40px; height:40px; border-radius:11px; background:#f4f5f7; border:1.5px solid #e2e8f0; font-size:21px; font-weight:800; color:#334155; display:grid; place-items:center; line-height:1; }
+    .pv-stp button:active{ transform:scale(.9); }
+    .pv-stp .pv-q{ min-width:28px; text-align:center; font-weight:800; font-size:16px; }
+    .pv-li .pv-del{ width:38px; height:38px; border-radius:11px; color:#ef4444; font-size:16px; display:grid; place-items:center; background:#fef2f2; flex:none; }
+    .pv-liempty{ padding:28px 14px; text-align:center; color:#94a3b8; font-weight:600; line-height:1.5; }
+    .pv-liempty .pv-big{ font-size:30px; display:block; margin-bottom:6px; }
+    .pv-sumfoot{ padding:12px 16px calc(12px + env(safe-area-inset-bottom)); flex:none; border-top:1px solid #e2e8f0; background:#fff; }
+    .pv-prim{ width:100%; height:62px; border-radius:15px; background:#642a72; color:#fff; font-weight:800; font-size:17px; display:flex; align-items:center; justify-content:center; gap:8px; box-shadow:0 10px 24px -12px rgba(100,42,114,.7); }
+    .pv-prim:active{ transform:translateY(1px); }
+    .pv-prim:disabled{ background:#cbd5e1; box-shadow:none; }
+
+    .pv-actionbar{ display:none; }
+    .pv-scrim{ position:fixed; inset:0; background:rgba(15,23,42,.45); z-index:39; opacity:0; pointer-events:none; transition:opacity .25s; }
+    .pv-scrim.show{ opacity:1; pointer-events:auto; }
+    @media(max-width:859px){
+      .pv-summary{ position:fixed; left:0; right:0; bottom:0; z-index:42; border-left:none; border-radius:20px 20px 0 0; box-shadow:0 -16px 40px -22px rgba(15,23,42,.5); transform:translateY(101%); transition:transform .28s ease; max-height:86dvh; }
+      .pv-summary.pv-open{ transform:translateY(0); }
+      .pv-grab{ display:block; height:5px; width:44px; border-radius:99px; background:#e2e8f0; margin:9px auto 2px; }
+      .pv-gridwrap{ padding-bottom:calc(var(--pvbar) + env(safe-area-inset-bottom) + 12px); }
+      .pv-actionbar{ position:fixed; left:0; right:0; bottom:0; z-index:38; background:#fff; border-top:1px solid #e2e8f0; height:calc(var(--pvbar) + env(safe-area-inset-bottom)); padding:9px 12px calc(9px + env(safe-area-inset-bottom)); display:flex; align-items:center; gap:10px; box-shadow:0 -8px 24px -20px rgba(15,23,42,.5); }
+      .pv-abcount{ display:flex; flex-direction:column; align-items:center; justify-content:center; min-width:70px; background:#f4f5f7; border:1.5px solid #e2e8f0; border-radius:13px; height:100%; padding:0 8px; }
+      .pv-abcount b{ font-size:28px; font-weight:800; color:#642a72; line-height:1; }
+      .pv-abcount small{ font-size:9px; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:.4px; }
+      .pv-abgo{ flex:1; height:100%; border-radius:14px; background:#642a72; color:#fff; font-weight:800; font-size:16px; display:flex; align-items:center; justify-content:center; gap:7px; }
+      .pv-abgo:disabled{ background:#cbd5e1; }
+      .pv-abgo:active{ transform:translateY(1px); }
+    }
+    @media(prefers-reduced-motion:reduce){ .pv-tile,.pv-count,.pv-summary{ animation:none!important; transition:none!important; } }
   </style>
 </head>
 <body class="bg-ink-100 min-h-screen text-ink-900">
@@ -107,42 +192,40 @@
       </button>
     </header>
 
-    <main class="flex-1 px-4 py-5 max-w-md w-full mx-auto">
-      <div class="flex items-center justify-between text-xs text-ink-500 mb-4 bg-white border border-ink-200 rounded-lg px-3 py-2">
-        <span class="truncate"><span id="loc-custody">—</span> <span class="text-ink-300">→</span> <span id="loc-transit">—</span></span>
-      </div>
-
-      <div id="prod-stage" class="stage bg-white border-2 border-ink-200 rounded-2xl p-6 text-center mb-4">
-        <div class="text-ink-400 text-xs uppercase tracking-wider mb-2">Escanee producto terminado</div>
-        <div class="text-5xl mb-2">📦</div>
-        <div id="prod-last" class="text-base font-semibold min-h-[1.5rem] text-ink-500 num">Esperando lectura…</div>
-      </div>
-
-      <div class="flex gap-2 mb-5">
-        <div class="relative flex-1">
-          <input id="sku-search" type="text" autocomplete="off" spellcheck="false"
-                 placeholder="Buscar producto o teclear SKU / EAN"
-                 class="w-full rounded-xl border border-ink-300 px-4 py-3 text-base bg-white" />
-          <div id="sku-results" class="hidden absolute z-30 mt-1 w-full bg-white border border-ink-200 rounded-xl shadow-lg overflow-hidden max-h-72 overflow-y-auto"></div>
+    <main id="prod-main" class="pv-body">
+      <section class="pv-products">
+        <div class="pv-filters">
+          <div class="pv-search">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.5"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+            <input id="sku-search" type="text" autocomplete="off" spellcheck="false" placeholder="Buscar o teclear SKU / EAN" />
+            <div id="sku-results" class="pv-results hidden"></div>
+          </div>
+          <input id="sku-qty" type="number" min="1" value="1" inputmode="numeric" class="pv-qty num" aria-label="Cantidad" title="Cantidad a agregar" />
         </div>
-        <input id="sku-qty" type="number" min="1" value="1" inputmode="numeric"
-               class="w-20 rounded-xl border border-ink-300 px-2 py-3 text-base text-center bg-white num" aria-label="Cantidad" title="Cantidad a agregar" />
-      </div>
+        <div id="prod-chips" class="pv-chips"></div>
+        <div id="prod-stage" class="pv-status"><span id="prod-last">Toca un producto, escanéalo o búscalo para empezar el lote.</span></div>
+        <div id="prod-grid-wrap" class="pv-gridwrap"></div>
+      </section>
 
-      <div class="bg-white border border-ink-200 rounded-2xl p-6 text-center mb-5">
-        <div class="text-ink-400 text-xs uppercase tracking-wider mb-1">Unidades en el pallet</div>
-        <div id="prod-counter" class="text-5xl font-extrabold text-brand num">0</div>
-      </div>
+      <aside id="prod-summary" class="pv-summary">
+        <div id="prod-grab" class="pv-grab"></div>
+        <div class="pv-sumhead">
+          <div class="pv-eyebrow2">Lote actual · <span class="pv-loc"><span id="loc-custody">—</span> <span style="color:#cbd5e1">→</span> <span id="loc-transit">—</span></span></div>
+          <div class="pv-crow"><div id="prod-counter" class="pv-count num">0</div><div class="pv-clbl">unidades<br>listas</div></div>
+        </div>
+        <div id="prod-recent" class="pv-slist"></div>
+        <div class="pv-sumfoot">
+          <button id="btn-conclude" class="pv-prim" disabled>Registrar producción
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+        </div>
+      </aside>
 
-      <div class="mb-5">
-        <div class="text-ink-400 text-xs uppercase tracking-wider mb-2">Últimas lecturas</div>
-        <div id="prod-recent" class="space-y-2"></div>
+      <div id="prod-actionbar" class="pv-actionbar">
+        <button id="prod-abcount" class="pv-abcount" aria-label="Ver y editar el lote"><b id="prod-mcount" class="num">0</b><small>uds</small></button>
+        <button id="prod-mgo" class="pv-abgo" disabled>Registrar producción
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
       </div>
-
-      <button id="btn-conclude" disabled
-        class="touch w-full rounded-xl bg-brand hover:bg-brand-light disabled:bg-ink-300 text-white font-bold text-lg transition-colors">
-        Registrar producción
-      </button>
+      <div id="prod-scrim" class="pv-scrim"></div>
     </main>
   </section>
 
@@ -248,6 +331,6 @@
     <div id="toast-box" class="rounded-xl px-5 py-3 text-white text-sm font-semibold shadow-lg bg-ink-900"></div>
   </div>
 
-  <script src="app.js?v=20260621k"></script>
+  <script src="app.js?v=20260701a"></script>
 </body>
 </html>

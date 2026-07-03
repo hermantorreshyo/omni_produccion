@@ -84,3 +84,16 @@ que el terminal muestra en pantalla. El cliente del API se construye de forma pe
 
 ---
 *API CORE documentado: v6.6.0 · subsistema [1004] Producción.*
+
+
+## Modo visual (rejilla de productos)
+El terminal muestra los productos terminados como **tarjetas grandes tocables** (icono por
+tipo de producto derivado del nombre + color suave), pensado para operarios poco habituados a
+teclear. Un toque suma +1; la insignia sobre la tarjeta muestra la cantidad en el lote.
+- **Más usados / Todos:** arranca en los más registrados de la sede (desde el historial local);
+  el buscador y el escáner siguen disponibles como respaldo.
+- **Solo con receta:** los PT sin receta se marcan «SIN RECETA» y no se pueden registrar
+  (la producción crea una orden que necesita `recipe_id`).
+- **Responsive:** en tablet el resumen del lote es un panel fijo a la derecha; en móvil es una
+  barra inferior (contador + Registrar) con una hoja deslizante para revisar/editar el lote.
+- Cantidades finas con **− / +** en cada línea del resumen. Cache-buster `app.js?v=20260701a`.
