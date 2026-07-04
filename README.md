@@ -111,3 +111,20 @@ teclear. Un toque suma +1; la insignia sobre la tarjeta muestra la cantidad en e
   salida»; el API resuelve `zona_producto_terminado` de la sede del JWT.
 - **`decimal_precision`:** aplicado vía `fmtQty()` en las cantidades del resumen.
 - **Fechas ISO 8601** en los envíos. Cache-buster `app.js?v=20260704a`.
+
+
+## Layout del terminal (herramientas fijas)
+`#prod-view` se fija a `100dvh` con `overflow:hidden` y la cabecera pasa a `flex:none`,
+de modo que **buscador, cantidad y filtros quedan fijos** y **solo la rejilla de productos
+hace scroll**. El resumen (rail en tablet / barra+hoja en móvil) también permanece fijo.
+
+
+## Gestión de permisos (RBAC §16.2)
+Nueva opción en el menú principal (drawer) **🔐 Gestión de permisos**, visible para roles
+administrativos (SuperAdmin siempre). Usa el mismo método que los demás subsistemas: una
+**matriz pantallas × roles** con casillas.
+- `GET /rbac/subsystems/1004/screen-permissions` → `{screens, roles, permissions}` construye la matriz.
+- `PUT /rbac/subsystems/1004/screen-permissions` con `{permissions:{screen_key:[rol,...]}}`
+  hace **reemplazo atómico completo** (se envía el mapa entero); efecto inmediato, sin logout.
+- Pantallas [1004]: `ordenes`, `nueva_orden`, `consumos`, `recetas`, `historial`.
+- Proxy: allowlist ampliada con GET/PUT `screen-permissions`. Cache-buster `app.js?v=20260704b`.

@@ -68,6 +68,7 @@ function isAllowedEndpoint(string $method, string $path): bool {
     ];
     if (isset($exact[$method]) && in_array($path, $exact[$method], true)) return true;
     if ($method === 'GET' && preg_match('#^rbac/subsystems/\d+/my-screens$#', $path)) return true;     // RBAC pantallas (§16.1)
+    if (preg_match('#^rbac/subsystems/\d+/screen-permissions$#', $path) && ($method === 'GET' || $method === 'PUT')) return true; // gestor de permisos (§16.2)
     if ($method === 'GET' && preg_match('#^production/orders/\d+$#', $path)) return true;           // detalle OP
     if ($method === 'PUT' && preg_match('#^production/orders/\d+/(execute|complete)$#', $path)) return true; // ejecutar/completar
     return false;

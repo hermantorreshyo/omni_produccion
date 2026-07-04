@@ -502,6 +502,7 @@
   function refreshDrawer() {
     $('cfg-section').classList.toggle('hidden', !canConfigure);
     $('btn-report').style.display = canScreen('historial') ? '' : 'none';
+    $('btn-perms').style.display = canConfigure ? '' : 'none';
     catState = ((CFG && CFG.accepted_categories) || ['PT']).slice(); renderCats(); catMsg('', 'mute');
     var h = History.read().slice(0, 20), wrap = $('drw-history');
     if (!h.length) { wrap.innerHTML = '<div class="text-ink-400 text-sm">— Nada registrado en esta sesión —</div>'; }
@@ -556,6 +557,45 @@
     $('report-modal').classList.remove('hidden'); $('report-modal').classList.add('flex');
   }
   function closeReport() { $('report-modal').classList.add('hidden'); $('report-modal').classList.remove('flex'); forceFocus(); }
+
+  /* ════ GESTOR DE PERMISOS (RBAC §16.2) ════ */
+  var permData = null;
+  function escHtml(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function permMsg(t, k) { var el = $('perm-msg'); el.className = 'text-xs min-h-[1rem] mt-2 ' + (k === 'ok' ? 'text-ok' : k === 'err' ? 'text-danger' : 'text-ink-400'); el.textContent = t; }
+  function openPerms() { $('perm-modal').classList.remove('hidden'); $('perm-modal').classList.add('flex'); permMsg('Cargando…', 'mute'); $('perm-matrix').innerHTML = ''; loadPerms(); }
+  function closePerms() { $('perm-modal').classList.add('hidden'); $('perm-modal').classList.remove('flex'); forceFocus(); }
+  async function loadPerms() {
+    try { var d = await omniFetch('rbac/subsystems/1004/screen-permissions', 'GET'); permData = d; renderMatrix(d); permMsg('', 'mute'); }
+    catch (e) { permMsg('✗ ' + (e.message || 'No se pudo cargar el mapa de permisos'), 'err'); $('perm-matrix').innerHTML = '<div class="p-6 text-center text-ink-400 text-sm">No disponible.</div>'; }
+  }
+  function renderMatrix(d) {
+    var screens = (d && d.screens) || [], roles = (d && d.roles) || [], perms = (d && d.permissions) || {};
+    if (!screens.length || !roles.length) { $('perm-matrix').innerHTML = '<div class="p-6 text-center text-ink-400 text-sm">Sin pantallas o roles para mostrar.</div>'; return; }
+    var html = '<table class="perm-table"><thead><tr><th class="perm-scr">Pantalla</th>';
+    roles.forEach(function (r) { html += '<th class="perm-role-th">' + escHtml(r.name) + '</th>'; });
+    html += '</tr></thead><tbody>';
+    screens.forEach(function (s) {
+      var granted = perms[s.screen_key] || [];
+      html += '<tr><td class="perm-scr">' + escHtml(s.label || s.screen_key) + '<small>' + escHtml(s.screen_key) + '</small></td>';
+      roles.forEach(function (r) {
+        var on = granted.indexOf(r.name) >= 0;
+        html += '<td><input type="checkbox" class="perm-chk" data-scr="' + escHtml(s.screen_key) + '" data-role="' + escHtml(r.name) + '"' + (on ? ' checked' : '') + '></td>';
+      });
+      html += '</tr>';
+    });
+    $('perm-matrix').innerHTML = html + '</tbody></table>';
+  }
+  async function savePerms() {
+    if (!permData) return;
+    var map = {};
+    (permData.screens || []).forEach(function (s) { map[s.screen_key] = []; }); // reemplazo atómico: incluir todas las pantallas
+    var chks = document.querySelectorAll('#perm-matrix .perm-chk');
+    Array.prototype.forEach.call(chks, function (c) { if (c.checked) { var k = c.getAttribute('data-scr'); (map[k] = map[k] || []).push(c.getAttribute('data-role')); } });
+    permMsg('Guardando…', 'mute'); $('perm-save').disabled = true;
+    try { var d = await omniFetch('rbac/subsystems/1004/screen-permissions', 'PUT', { permissions: map }); permData = d; renderMatrix(d); permMsg('✓ Permisos actualizados (efecto inmediato).', 'ok'); Feedback.ok(); }
+    catch (e) { permMsg('✗ ' + (e.message || 'No se pudo guardar'), 'err'); Feedback.err(); }
+    finally { $('perm-save').disabled = false; }
+  }
   function quickRange(days) { var t = new Date(), f = new Date(); f.setDate(f.getDate() - days); $('rep-to').value = fmtDate(t); $('rep-from').value = fmtDate(f); }
   async function generateReport() {
     var from = $('rep-from').value, to = $('rep-to').value;
@@ -640,6 +680,10 @@
     $('cat-save').addEventListener('click', saveCats);
     $('btn-report').addEventListener('click', openReport);
     $('report-close').addEventListener('click', closeReport);
+    $('btn-perms').addEventListener('click', function () { closeDrawer(); openPerms(); });
+    $('perm-close').addEventListener('click', closePerms);
+    $('perm-reload').addEventListener('click', function () { permMsg('Cargando…', 'mute'); loadPerms(); });
+    $('perm-save').addEventListener('click', savePerms);
     $('rep-generate').addEventListener('click', generateReport);
     Array.prototype.forEach.call(document.querySelectorAll('.rep-quick'), function (b) { b.addEventListener('click', function () { quickRange(parseInt(b.getAttribute('data-range'), 10)); }); });
     $('btn-unfreeze').addEventListener('click', function () { $('unfreeze-modal').classList.remove('hidden'); $('unfreeze-modal').classList.add('flex'); });

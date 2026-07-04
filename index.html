@@ -35,7 +35,8 @@
 
     /* ════ MODO VISUAL (rejilla de productos) ════ */
     :root{ --pvbar:92px; }
-    #prod-view.active{ display:flex; }
+    #prod-view.active{ display:flex; flex-direction:column; height:100dvh; overflow:hidden; }
+    #prod-view > header{ flex:none; position:static; }
     .pv-body{ flex:1; display:grid; grid-template-columns:1fr; min-height:0; overflow:hidden; }
     @media(min-width:860px){ .pv-body{ grid-template-columns:1fr minmax(300px,372px); } }
     .pv-products{ min-height:0; display:flex; flex-direction:column; overflow:hidden; }
@@ -117,6 +118,17 @@
       .pv-abgo:active{ transform:translateY(1px); }
     }
     @media(prefers-reduced-motion:reduce){ .pv-tile,.pv-count,.pv-summary{ animation:none!important; transition:none!important; } }
+
+    /* ── Matriz de permisos ── */
+    .perm-table{ border-collapse:separate; border-spacing:0; width:100%; font-size:13px; }
+    .perm-table th, .perm-table td{ padding:9px 10px; border-bottom:1px solid #eef2f7; text-align:center; white-space:nowrap; }
+    .perm-table thead th{ position:sticky; top:0; z-index:2; background:#f8fafc; font-weight:800; color:#475569; font-size:11px; text-transform:uppercase; letter-spacing:.4px; }
+    .perm-table th.perm-scr, .perm-table td.perm-scr{ position:sticky; left:0; z-index:1; background:#fff; text-align:left; font-weight:700; color:#1e293b; min-width:150px; box-shadow:1px 0 0 #eef2f7; }
+    .perm-table thead th.perm-scr{ z-index:3; background:#f8fafc; }
+    .perm-table td.perm-scr small{ display:block; font-weight:600; color:#94a3b8; font-size:10.5px; }
+    .perm-table tbody tr:hover td{ background:#faf7fc; }
+    .perm-chk{ width:22px; height:22px; accent-color:#642a72; cursor:pointer; }
+    .perm-role-th{ min-width:96px; }
   </style>
 </head>
 <body class="bg-ink-100 min-h-screen text-ink-900">
@@ -251,6 +263,7 @@
         <div id="kpi-week" class="text-ink-500 text-xs mt-2"></div>
         <div id="kpi-last" class="text-ink-400 text-xs"></div>
         <button id="btn-report" class="w-full mt-3 rounded-lg border border-brand/30 text-brand font-semibold py-2.5 text-sm">📊 Ver reporte de producción</button>
+        <button id="btn-perms" class="w-full mt-2 rounded-lg border border-ink-300 text-ink-700 font-semibold py-2.5 text-sm" style="display:none">🔐 Gestión de permisos</button>
       </div>
 
       <!-- Configuración: categorías aceptadas -->
@@ -311,6 +324,23 @@
     </div>
   </div>
 
+  <!-- ════ MODAL · GESTIÓN DE PERMISOS (matriz pantallas × roles) ════ -->
+  <div id="perm-modal" class="hidden fixed inset-0 z-50 bg-black/40 items-center justify-center px-3">
+    <div class="bg-white rounded-2xl w-full max-w-2xl p-5 flex flex-col" style="max-height:92vh">
+      <div class="flex items-center justify-between mb-1 shrink-0">
+        <h2 class="font-bold text-lg">Gestión de permisos</h2>
+        <button id="perm-close" class="w-9 h-9 rounded-lg hover:bg-ink-100 flex items-center justify-center" aria-label="Cerrar">✕</button>
+      </div>
+      <p class="text-ink-500 text-xs mb-3 shrink-0">Marca qué roles pueden ver cada pantalla de este subsistema. El SuperAdministrador siempre tiene acceso completo y no aparece en la lista.</p>
+      <div id="perm-matrix" class="flex-1 overflow-auto border border-ink-200 rounded-xl"></div>
+      <div id="perm-msg" class="text-xs min-h-[1rem] mt-2 shrink-0"></div>
+      <div class="flex gap-2 mt-2 shrink-0">
+        <button id="perm-reload" class="rounded-lg border border-ink-300 text-ink-700 px-4 py-2.5 text-sm font-semibold">Recargar</button>
+        <button id="perm-save" class="flex-1 rounded-lg bg-brand text-white py-2.5 font-semibold">Guardar cambios</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ════ MODAL · DESBLOQUEO SUPERVISOR ════ -->
   <div id="unfreeze-modal" class="hidden fixed inset-0 z-50 bg-black/40 items-center justify-center px-5">
     <div class="bg-white rounded-2xl w-full max-w-sm p-6">
@@ -331,6 +361,6 @@
     <div id="toast-box" class="rounded-xl px-5 py-3 text-white text-sm font-semibold shadow-lg bg-ink-900"></div>
   </div>
 
-  <script src="app.js?v=20260704a"></script>
+  <script src="app.js?v=20260704b"></script>
 </body>
 </html>
