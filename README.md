@@ -97,3 +97,17 @@ teclear. Un toque suma +1; la insignia sobre la tarjeta muestra la cantidad en e
 - **Responsive:** en tablet el resumen del lote es un panel fijo a la derecha; en móvil es una
   barra inferior (contador + Registrar) con una hoja deslizante para revisar/editar el lote.
 - Cantidades finas con **− / +** en cada línea del resumen. Cache-buster `app.js?v=20260701a`.
+
+
+## Sincronización con OMNI API CORE v6.9
+- **`GET /system/params` tras el login:** lee `recipe_restriction`, `stock_negative_allowed`,
+  `inventory_restriction`, `decimal_precision` (módulo `Params`). Permitido en el proxy.
+- **`recipe_id` opcional:** si `recipe_restriction=false`, los PT sin receta también se
+  registran (OP sin `recipe_id`) y las tarjetas no se bloquean. Solo se marca «SIN RECETA» y
+  se bloquea cuando `recipe_restriction=true`.
+- **`catalog/skus` sin `item_type`:** se pide `catalog/skus?limit=500`; el API filtra a PT
+  automáticamente por `X-Subsystem-Id: 1004`.
+- **`output_location_id` opcional** en `complete`: se elimina el bloqueo por «ubicación de
+  salida»; el API resuelve `zona_producto_terminado` de la sede del JWT.
+- **`decimal_precision`:** aplicado vía `fmtQty()` en las cantidades del resumen.
+- **Fechas ISO 8601** en los envíos. Cache-buster `app.js?v=20260704a`.

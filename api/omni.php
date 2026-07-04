@@ -63,7 +63,7 @@ if ($endpoint === '') { failure('Falta el campo "endpoint".', 'ERR_VALIDATION', 
 
 function isAllowedEndpoint(string $method, string $path): bool {
     $exact = [
-        'GET'  => ['auth/me', 'catalog/interlocutors', 'catalog/locations', 'catalog/skus', 'inventory/stock', 'analytics/kardex', 'production/recipes', 'production/orders', 'health'],
+        'GET'  => ['auth/me', 'catalog/interlocutors', 'catalog/locations', 'catalog/skus', 'inventory/stock', 'analytics/kardex', 'production/recipes', 'production/orders', 'system/params', 'health'],
         'POST' => ['auth/login', 'inventory/transfer', 'production/orders'],
     ];
     if (isset($exact[$method]) && in_array($path, $exact[$method], true)) return true;

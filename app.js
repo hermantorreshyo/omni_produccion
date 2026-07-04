@@ -75,20 +75,36 @@
     };
   })();
   async function refreshCatalog() {
-    var acc = [], types = (CFG && CFG.accepted_categories) || ['PT'];
-    for (var i = 0; i < types.length; i++) {
-      var off = 0, guard = 0;
-      while (guard++ < 40) {
-        var qs = 'catalog/skus?item_type=' + encodeURIComponent(types[i]) + '&limit=50' + (off > 0 ? '&offset=' + off : '');
-        var rows;
-        try { rows = rowsOf(await omniFetch(qs, 'GET')); }
-        catch (e) { if (off === 0) throw e; break; }   // 1ª página propaga el error; siguientes, best-effort
-        acc = acc.concat(rows);
-        if (rows.length < 50) break; off += 50;
-      }
+    // v6.9: NO enviar item_type. El API filtra a PT automáticamente por X-Subsystem-Id: 1004.
+    var acc = [], off = 0, guard = 0;
+    while (guard++ < 20) {
+      var rows;
+      try { rows = rowsOf(await omniFetch('catalog/skus?limit=500' + (off > 0 ? '&offset=' + off : ''), 'GET')); }
+      catch (e) { if (off === 0) throw e; break; }
+      acc = acc.concat(rows);
+      if (rows.length < 500) break; off += 500;
     }
     Catalog.load(acc); Catalog.persist(acc); return Catalog.size();
   }
+
+  /* ════ Parámetros de sistema (v6.9): leer tras el login ════ */
+  var Params = (function () {
+    var v = { recipe_restriction: false, stock_negative_allowed: true, inventory_restriction: false, decimal_precision: 4 };
+    function pick(o, k) { var x = o && o[k]; if (x && typeof x === 'object' && 'value' in x) return x.value; return x; }
+    return {
+      load: function (data) {
+        var d = (data && data.params) || data || {};
+        ['recipe_restriction', 'stock_negative_allowed', 'inventory_restriction', 'decimal_precision'].forEach(function (k) {
+          var val = pick(d, k); if (val !== undefined && val !== null) v[k] = val;
+        });
+      },
+      recipeRequired: function () { return v.recipe_restriction === true || v.recipe_restriction === 1 || v.recipe_restriction === '1'; },
+      decimals: function () { var n = parseInt(v.decimal_precision, 10); return isNaN(n) ? 4 : n; },
+      all: function () { return v; }
+    };
+  })();
+  async function refreshParams() { try { Params.load(await omniFetch('system/params', 'GET')); } catch (e) {} return Params.all(); }
+  function fmtQty(n) { n = Number(n) || 0; return Number.isInteger(n) ? String(n) : n.toFixed(Params.decimals()); }
 
   /* ════ 3b. RECETAS (SKU producido → recipe_id) ════ */
   var Recipes = (function () {
@@ -182,13 +198,17 @@
     async function dispatch(p, save) {
       // Ciclo de producción: crear OP → ejecutar → completar (con lote). Resumible.
       if (p.orderId == null) {
-        var c = await omniFetch('production/orders', 'POST', { recipe_id: p.recipeId, interlocutor_id: p.interlocutorId, quantity_target: p.quantity });
+        var body = { interlocutor_id: p.interlocutorId, quantity_target: p.quantity };
+        if (p.recipeId != null) body.recipe_id = p.recipeId;   // v6.9: opcional si recipe_restriction=false
+        var c = await omniFetch('production/orders', 'POST', body);
         p.orderId = (c && (c.id != null ? c.id : (c.order_id != null ? c.order_id : (c.data && c.data.id)))) || null;
         if (p.orderId == null) { var e0 = new Error('La creación de la OP no devolvió id'); e0.rejected = true; throw e0; }
         save();
       }
       if (!p.executed) { await omniFetch('production/orders/' + p.orderId + '/execute', 'PUT', null); p.executed = true; save(); }
-      return omniFetch('production/orders/' + p.orderId + '/complete', 'PUT', { quantity_real: p.quantity, output_location_id: p.outputLocationId });
+      var done = { quantity_real: p.quantity };
+      if (p.outputLocationId != null) done.output_location_id = p.outputLocationId; // v6.9: opcional, el API resuelve zona PT
+      return omniFetch('production/orders/' + p.orderId + '/complete', 'PUT', done);
     }
     async function drain() {
       if (draining || frozen() || !navigator.onLine) { render(); return; }
@@ -286,6 +306,7 @@
     showView('prod-view'); Scan.start(onScan); Outbox.render(); Outbox.drain(); siteMsg('', 'mute'); forceFocus();
     try { await loadLocations(); } catch (e) { toast('No se pudieron cargar ubicaciones.', 'warn'); }
     renderLocLine();
+    if (navigator.onLine) { try { await refreshParams(); } catch (e) {} }
     if (navigator.onLine) { try { await refreshCatalog(); } catch (e) { Catalog.restore(); toast('Catálogo: ' + (e.message || 'no se pudo cargar'), 'warn'); } } else Catalog.restore();
     if (navigator.onLine) { try { await refreshRecipes(); } catch (e) {} }
     renderChips(); renderGrid();
@@ -321,7 +342,7 @@
       var row = document.createElement('div'); row.className = 'pv-li';
       row.innerHTML = '<span class="pv-lem">' + emojiFor(e.name) + '</span>' +
         '<span class="pv-lnm"><b>' + e.name + '</b><small>' + (e.sku || ('#' + e.itemId)) + ' · ' + e.unit + '</small></span>' +
-        '<span class="pv-stp"><button data-a="dec">−</button><span class="pv-q num">' + e.qty + '</span><button data-a="inc">+</button></span>' +
+        '<span class="pv-stp"><button data-a="dec">−</button><span class="pv-q num">' + fmtQty(e.qty) + '</span><button data-a="inc">+</button></span>' +
         '<button data-a="del" class="pv-del" aria-label="Quitar">🗑</button>';
       row.querySelector('[data-a="dec"]').addEventListener('click', function () { changeQty(e.rid, -1); });
       row.querySelector('[data-a="inc"]').addEventListener('click', function () { changeQty(e.rid, 1); });
@@ -373,9 +394,9 @@
     if (!pvQuery) { var eb = document.createElement('div'); eb.className = 'pv-eyebrow'; eb.textContent = pvFilter === 'fav' ? 'Más usados en esta sede' : 'Todos los productos'; w.appendChild(eb); }
     var vis = pvVisible();
     if (!vis.length) { var e = document.createElement('div'); e.className = 'pv-empty'; e.textContent = 'Sin productos para “' + pvQuery + '”.'; w.appendChild(e); return; }
-    var hasRecipes = Recipes.size() > 0, g = document.createElement('div'); g.className = 'pv-grid';
+    var recipesReady = Recipes.size() > 0, requireRecipe = Params.recipeRequired(), g = document.createElement('div'); g.className = 'pv-grid';
     vis.forEach(function (p) {
-      var locked = hasRecipes && !Recipes.forSku(p.id), qty = qtyOf(p.id);
+      var hasRec = recipesReady && Recipes.forSku(p.id), locked = requireRecipe && recipesReady && !hasRec, qty = qtyOf(p.id);
       var t = document.createElement('button'); t.className = 'pv-tile' + (qty ? ' has' : '') + (locked ? ' lock' : '');
       t.setAttribute('data-id', p.id); t.style.setProperty('--tc', tintFor(p.name));
       t.innerHTML = '<span class="pv-em">' + emojiFor(p.name) + '</span><span class="pv-nm">' + p.name + '</span>' +
@@ -451,16 +472,17 @@
   function concludeTransfer() {
     if (!batch.length) return;
     if (Outbox.frozen()) { toast('Sincronización detenida: requiere supervisor.', 'err'); Feedback.err(); return; }
-    if (!custody || !custody.id) { toast('Esta sede no tiene ubicación de salida en OMNI.', 'err'); Feedback.err(); return; }
     if (!activeSite || !activeSite.id) { toast('Sin sede activa.', 'err'); Feedback.err(); return; }
+    var requireRecipe = Params.recipeRequired();
+    var outLoc = (custody && custody.id) ? custody.id : null; // v6.9: opcional, el API resuelve zona_producto_terminado
     var byItem = {};
     batch.forEach(function (e) { var k = String(e.itemId); if (!byItem[k]) byItem[k] = { itemId: e.itemId, sku: e.sku, name: e.name, quantity: 0, unit: e.unit }; byItem[k].quantity += e.qty; });
     var lines = Object.keys(byItem).map(function (k) { return byItem[k]; });
     var queued = [], missing = [];
     lines.forEach(function (it) {
       var rec = Recipes.forSku(it.itemId);
-      if (!rec) { missing.push(it.name); return; }
-      Outbox.push({ idempotencyKey: 'OP-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8), timestamp: new Date().toISOString(), recipeId: rec.recipeId, interlocutorId: activeSite.id, quantity: it.quantity, outputLocationId: custody.id, itemId: it.itemId, sku: it.sku, name: it.name, unit: it.unit, orderId: null, executed: false });
+      if (!rec && requireRecipe) { missing.push(it.name); return; } // solo se bloquea si el sistema exige receta
+      Outbox.push({ idempotencyKey: 'OP-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8), timestamp: new Date().toISOString(), recipeId: rec ? rec.recipeId : null, interlocutorId: activeSite.id, quantity: it.quantity, outputLocationId: outLoc, itemId: it.itemId, sku: it.sku, name: it.name, unit: it.unit, orderId: null, executed: false });
       queued.push(it);
     });
     if (queued.length) {
