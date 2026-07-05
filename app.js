@@ -157,7 +157,7 @@
     var tU = 0, tM = 0, tS = {}, wU = 0, wM = 0, last = null;
     rows.forEach(function (r) {
       if (!mine(r)) return;
-      var q = Math.abs(Number(r.quantity_real != null ? r.quantity_real : (r.quantity != null ? r.quantity : 0))) || 0;
+      var q = Math.abs(Number(r.quantity_real != null ? r.quantity_real : (r.quantity_total != null ? r.quantity_total : (r.quantity != null ? r.quantity : 0)))) || 0;
       var ts = r.end_time || r.completed_at || r.created_at || r.start_time; var tm = ts ? new Date(ts).getTime() : 0;
       wU += q; wM++; if (!last || tm > new Date(last).getTime()) last = ts;
       if (tm >= t0) { tU += q; tM++; var sku = r.product_sku_id != null ? r.product_sku_id : r.recipe_id; if (sku != null) tS[sku] = 1; }
@@ -196,18 +196,20 @@
       if (q.length > 0 || !navigator.onLine) { $('offline-count').textContent = q.length; $('offline-label').textContent = navigator.onLine ? 'SINCRONIZANDO' : 'MODO OFFLINE'; off.classList.toggle('hidden', navigator.onLine && q.length === 0); } else off.classList.add('hidden');
     }
     async function dispatch(p, save) {
-      // Ciclo de producción: crear OP → ejecutar → completar (con lote). Resumible.
+      // Compat: migrar items encolados con la forma anterior (single-SKU) a items[].
+      if (!p.items && p.quantity != null) { p.items = [{ sku_id: p.itemId, quantity: p.quantity, sku: p.sku, name: p.name, unit: p.unit }]; }
+      // Ciclo de producción multi-SKU: crear OP con items[] → ejecutar → completar con items[]. Resumible.
       if (p.orderId == null) {
-        var body = { interlocutor_id: p.interlocutorId, quantity_target: p.quantity };
-        if (p.recipeId != null) body.recipe_id = p.recipeId;   // v6.9: opcional si recipe_restriction=false
+        var body = { interlocutor_id: p.interlocutorId, items: (p.items || []).map(function (it) { return { sku_id: it.sku_id, quantity_target: it.quantity }; }) };
+        if (p.recipeId != null) body.recipe_id = p.recipeId;   // opcional (recipe_restriction=false)
         var c = await omniFetch('production/orders', 'POST', body);
         p.orderId = (c && (c.id != null ? c.id : (c.order_id != null ? c.order_id : (c.data && c.data.id)))) || null;
         if (p.orderId == null) { var e0 = new Error('La creación de la OP no devolvió id'); e0.rejected = true; throw e0; }
         save();
       }
       if (!p.executed) { await omniFetch('production/orders/' + p.orderId + '/execute', 'PUT', null); p.executed = true; save(); }
-      var done = { quantity_real: p.quantity };
-      if (p.outputLocationId != null) done.output_location_id = p.outputLocationId; // v6.9: opcional, el API resuelve zona PT
+      var done = { items: (p.items || []).map(function (it) { return { sku_id: it.sku_id, quantity_real: it.quantity }; }) };
+      if (p.outputLocationId != null) done.output_location_id = p.outputLocationId; // opcional: el API resuelve zona PT
       return omniFetch('production/orders/' + p.orderId + '/complete', 'PUT', done);
     }
     async function drain() {
@@ -486,25 +488,33 @@
     if (Outbox.frozen()) { toast('Sincronización detenida: requiere supervisor.', 'err'); Feedback.err(); return; }
     if (!activeSite || !activeSite.id) { toast('Sin sede activa.', 'err'); Feedback.err(); return; }
     var requireRecipe = Params.recipeRequired();
-    var outLoc = (custody && custody.id) ? custody.id : null; // v6.9: opcional, el API resuelve zona_producto_terminado
+    var outLoc = (custody && custody.id) ? custody.id : null; // opcional: el API resuelve zona_producto_terminado
     var byItem = {};
     batch.forEach(function (e) { var k = String(e.itemId); if (!byItem[k]) byItem[k] = { itemId: e.itemId, sku: e.sku, name: e.name, quantity: 0, unit: e.unit }; byItem[k].quantity += e.qty; });
     var lines = Object.keys(byItem).map(function (k) { return byItem[k]; });
-    var queued = [], missing = [];
+    var items = [], missing = [];
     lines.forEach(function (it) {
-      var rec = Recipes.forSku(it.itemId);
-      if (!rec && requireRecipe) { missing.push(it.name); return; } // solo se bloquea si el sistema exige receta
-      Outbox.push({ idempotencyKey: 'OP-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8), timestamp: new Date().toISOString(), recipeId: rec ? rec.recipeId : null, interlocutorId: activeSite.id, quantity: it.quantity, outputLocationId: outLoc, itemId: it.itemId, sku: it.sku, name: it.name, unit: it.unit, orderId: null, executed: false });
-      queued.push(it);
+      if (requireRecipe && !Recipes.forSku(it.itemId)) { missing.push(it.name); return; } // solo se descarta si el sistema exige receta
+      items.push(it);
     });
-    if (queued.length) {
-      History.add({ palletId: 'P-' + Date.now(), ts: new Date().toISOString(), sede: activeSite && activeSite.name, lines: queued.map(function (l) { return { itemId: l.itemId, sku: l.sku, name: l.name, qty: l.quantity, unit: l.unit }; }), totalUnits: queued.reduce(function (a, l) { return a + l.quantity; }, 0) });
+    if (items.length) {
+      // UNA sola OP con todos los SKUs del lote (multi-SKU): create items[] → execute → complete items[].
+      Outbox.push({
+        idempotencyKey: 'OP-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+        timestamp: new Date().toISOString(),
+        interlocutorId: activeSite.id,
+        outputLocationId: outLoc,
+        recipeId: null,
+        items: items.map(function (it) { return { sku_id: it.itemId, quantity: it.quantity, sku: it.sku, name: it.name, unit: it.unit }; }),
+        orderId: null, executed: false
+      });
+      History.add({ palletId: 'P-' + Date.now(), ts: new Date().toISOString(), sede: activeSite && activeSite.name, lines: items.map(function (l) { return { itemId: l.itemId, sku: l.sku, name: l.name, qty: l.quantity, unit: l.unit }; }), totalUnits: items.reduce(function (a, l) { return a + l.quantity; }, 0) });
       Feedback.ok(); flashStage('ok');
-      $('prod-last').textContent = '→ Producción registrada (' + queued.length + ' producto' + (queued.length > 1 ? 's' : '') + ')';
-      toast('Órdenes de producción en cola (' + queued.length + ').', 'ok');
+      $('prod-last').textContent = '→ OP en cola con ' + items.length + ' producto' + (items.length > 1 ? 's' : '') + ' (' + items.reduce(function (a, l) { return a + l.quantity; }, 0) + ' ud)';
+      toast('Orden de producción en cola.', 'ok');
     }
     if (missing.length) { Feedback.err(); toast('Sin receta, no se registran: ' + missing.join(', '), 'warn'); }
-    if (queued.length) { batch = batch.filter(function (e) { return missing.indexOf(e.name) >= 0; }); renderCounter(); renderRecent(); renderGrid(); pvCloseSheet(); }
+    if (items.length) { batch = batch.filter(function (e) { return missing.indexOf(e.name) >= 0; }); renderCounter(); renderRecent(); renderGrid(); pvCloseSheet(); }
     forceFocus();
   }
 
@@ -630,7 +640,7 @@
       var ts = r.end_time || r.completed_at || r.created_at || r.start_time; var tm = ts ? new Date(ts).getTime() : 0;
       if (tm && (tm < fromT || tm > toT)) return;
       if (mineOnly && hasUser && !mine(r)) return;
-      var q = Math.abs(Number(r.quantity_real != null ? r.quantity_real : (r.quantity != null ? r.quantity : 0))) || 0;
+      var q = Math.abs(Number(r.quantity_real != null ? r.quantity_real : (r.quantity_total != null ? r.quantity_total : (r.quantity != null ? r.quantity : 0)))) || 0;
       var sku = r.product_sku_id != null ? r.product_sku_id : r.recipe_id;
       var nm = r.product || r.product_name || r.name || ((Recipes.forSku(sku) || {}).name) || ('SKU ' + sku);
       var key = String(sku != null ? sku : nm);
