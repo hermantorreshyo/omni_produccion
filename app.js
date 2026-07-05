@@ -619,7 +619,17 @@
   function openPerms() { $('perm-modal').classList.remove('hidden'); $('perm-modal').classList.add('flex'); permMsg('Cargando…', 'mute'); $('perm-matrix').innerHTML = ''; loadPerms(); }
   function closePerms() { $('perm-modal').classList.add('hidden'); $('perm-modal').classList.remove('flex'); forceFocus(); }
   async function loadPerms() {
-    try { var d = await omniFetch('rbac/subsystems/1004/screen-permissions', 'GET'); permData = d; renderMatrix(d); permMsg('', 'mute'); }
+    try {
+      var d = await omniFetch('rbac/subsystems/1004/screen-permissions', 'GET') || {};
+      // Roles reales de la sede activa (con usuarios), no todos los del sistema.
+      if (activeSite && activeSite.id) {
+        try {
+          var rr = rowsOf(await omniFetch('catalog/roles?interlocutor_id=' + encodeURIComponent(activeSite.id), 'GET'));
+          if (rr && rr.length) { d.roles = rr.map(function (x) { return { id: x.id || x.role_id, name: x.name || x.role_name || x.nombre }; }); }
+        } catch (e) {}
+      }
+      permData = d; renderMatrix(d); permMsg('', 'mute');
+    }
     catch (e) { permMsg('✗ ' + (e.message || 'No se pudo cargar el mapa de permisos'), 'err'); $('perm-matrix').innerHTML = '<div class="p-6 text-center text-ink-400 text-sm">No disponible.</div>'; }
   }
   function renderMatrix(d) {
