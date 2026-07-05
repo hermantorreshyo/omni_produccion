@@ -222,7 +222,7 @@
         }
       } finally { draining = false; render(); if ($('drawer').classList.contains('open')) loadKpis(); }
     }
-    return { push: function (p) { var q = read(); q.push(p); write(q); render(); drain(); }, drain: drain, render: render, frozen: frozen, resume: function () { clearFrozen(); render(); drain(); } };
+    return { push: function (p) { var q = read(); q.push(p); write(q); render(); drain(); }, drain: drain, render: render, frozen: frozen, count: function () { return read().length; }, resume: function () { clearFrozen(); render(); drain(); } };
   })();
 
   /* ════ 7. ESCÁNER HID ════ */
@@ -303,7 +303,9 @@
     $('prod-operator').textContent = u.nombre || u.name || u.username || 'Operario';
     $('prod-role').textContent = u.rol || u.role || '';
     batch = []; renderCounter(); renderRecent(); renderChips(); renderGrid();
-    showView('prod-view'); Scan.start(onScan); Outbox.render(); Outbox.drain(); siteMsg('', 'mute'); forceFocus();
+    showView('prod-view'); Scan.start(onScan);
+    if (Outbox.frozen() && Outbox.count() === 0) Outbox.resume(); // congelado obsoleto sin nada pendiente
+    Outbox.render(); Outbox.drain(); siteMsg('', 'mute'); forceFocus();
     try { await loadLocations(); } catch (e) { toast('No se pudieron cargar ubicaciones.', 'warn'); }
     renderLocLine();
     if (navigator.onLine) { try { await refreshParams(); } catch (e) {} }
@@ -644,7 +646,13 @@
     var u = $('uf-user').value.trim(), p = $('uf-pass').value, msg = $('uf-msg');
     if (!u || !p) { msg.className = 'text-sm font-medium min-h-[1.25rem] mb-2 text-danger'; msg.textContent = 'Credenciales requeridas.'; return; }
     msg.className = 'text-sm font-medium min-h-[1.25rem] mb-2 text-ink-500'; msg.textContent = 'Validando…';
-    try { await omniFetch('auth/login', 'POST', { username: u, password: p }); $('unfreeze-modal').classList.add('hidden'); $('unfreeze-modal').classList.remove('flex'); $('uf-user').value = ''; $('uf-pass').value = ''; Outbox.resume(); toast('Reintento autorizado.', 'ok'); Feedback.ok(); }
+    try {
+      await omniFetch('auth/login', 'POST', { username: u, password: p });
+      // El 401 pudo vaciar la sesión (incluida la sede). Re-seleccionar la sede activa para
+      // que el token quede con el rol de esa sede y el reintento no falle por "Selecciona una sede".
+      if (activeSite && activeSite.id) { await omniFetch('select-interlocutor', 'POST', { interlocutor_id: activeSite.id, interlocutor_name: activeSite.name }); }
+      $('unfreeze-modal').classList.add('hidden'); $('unfreeze-modal').classList.remove('flex'); $('uf-user').value = ''; $('uf-pass').value = ''; Outbox.resume(); toast('Reintento autorizado.', 'ok'); Feedback.ok();
+    }
     catch (e) { msg.className = 'text-sm font-medium min-h-[1.25rem] mb-2 text-danger'; msg.textContent = '✗ ' + (e.message || 'No autorizado'); Feedback.err(); }
   }
   async function logout() {
