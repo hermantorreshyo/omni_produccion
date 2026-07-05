@@ -199,7 +199,11 @@
     function clearFrozen() { lsDel(FROZEN_KEY); lsDel(FROZEN_KEY + '.r'); }
     function render() {
       var q = read(), off = $('offline-banner'), sync = $('sync-banner');
-      if (frozen()) { $('sync-detail').textContent = ls(FROZEN_KEY + '.r') || 'requiere supervisor'; sync.classList.remove('hidden'); off.classList.add('hidden'); return; }
+      if (frozen()) {
+        var reason = ls(FROZEN_KEY + '.r') || 'requiere supervisor';
+        if (/permis|production\.plan|forbidden|no autorizado/i.test(reason)) { reason += ' — asigna al rol la pantalla que concede ese permiso (p. ej. «nueva_orden») en Gestión de permisos y vuelve a iniciar sesión.'; }
+        $('sync-detail').textContent = reason; sync.classList.remove('hidden'); off.classList.add('hidden'); return;
+      }
       sync.classList.add('hidden');
       if (q.length > 0 || !navigator.onLine) { $('offline-count').textContent = q.length; $('offline-label').textContent = navigator.onLine ? 'SINCRONIZANDO' : 'MODO OFFLINE'; off.classList.toggle('hidden', navigator.onLine && q.length === 0); } else off.classList.add('hidden');
     }

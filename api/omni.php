@@ -183,14 +183,16 @@ if ($path === 'select-interlocutor') {
     $_SESSION['omni_iid'] = $iid;
     $_SESSION['omni_iname'] = trim((string) ($payload['interlocutor_name'] ?? ('Sede ' . $iid)));
 
-    // v6.8 §2: re-autenticar con la sede elegida para que el JWT lleve el ROL de ESA sede.
+    // §2/§3: re-autenticar con la sede elegida para que el JWT lleve el ROL y PERMISOS de ESA sede.
     if (!empty($_SESSION['omni_cred']['u'])) {
         $r = rawLogin($CFG, $_SESSION['omni_cred']['u'], $_SESSION['omni_cred']['p'], $iid);
-        if (!empty($r['ok'])) {
-            $_SESSION['omni_token'] = $r['token'];
-            $_SESSION['omni_user']  = $r['user'];
-            if (!empty($r['interlocutor_name'])) { $_SESSION['omni_iname'] = $r['interlocutor_name']; }
+        if (empty($r['ok'])) {
+            // No dejar al usuario operando con el token de arranque (interlocutor 0, sin permisos de sede).
+            failure('No se pudo activar la sede: ' . ($r['error'] ?? 'reautenticación fallida') . '. Vuelve a iniciar sesión.', $r['code'] ?? 'ERR_AUTH', $r['status'] ?? 401);
         }
+        $_SESSION['omni_token'] = $r['token'];
+        $_SESSION['omni_user']  = $r['user'];
+        if (!empty($r['interlocutor_name'])) { $_SESSION['omni_iname'] = $r['interlocutor_name']; }
         unset($_SESSION['omni_cred']); // el password ya no se necesita
     }
     success(['interlocutor' => activeInterlocutor(), 'user' => $_SESSION['omni_user'] ?? null], 'Sede activa establecida');
@@ -222,8 +224,9 @@ if (!$isDiscovery && $path !== 'health' && empty($_SESSION['omni_iid'])) { failu
 $res = coreCall(omniClient($CFG), $CFG, $method, $endpoint, $payload, !$isDiscovery);
 if ($res['status'] === 0) { failure('Error de red con el API CORE: ' . $res['error'], 'ERR_OMNI_UNREACHABLE', 502); }
 
-// §3: ante 401, intentar refrescar el token una vez y reintentar (evita cortar la sesión por expiración).
-if ($res['status'] === 401 && !empty($_SESSION['omni_token']) && $path !== 'auth/login' && $path !== 'auth/refresh') {
+// §3: ante 401 (token expirado) o 403 (permiso recién asignado / JWT desactualizado),
+// intentar refrescar el token una vez y reintentar. El refresh reconstruye el JWT.
+if (($res['status'] === 401 || $res['status'] === 403) && !empty($_SESSION['omni_token']) && $path !== 'auth/login' && $path !== 'auth/refresh') {
     $rf = coreCall(omniClient($CFG), $CFG, 'POST', 'auth/refresh', null, false);
     if ($rf['status'] >= 200 && $rf['status'] < 300 && is_array($rf['json'])) {
         $dd = $rf['json']['data'] ?? $rf['json'];
