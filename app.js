@@ -89,16 +89,17 @@
 
   /* ════ Parámetros de sistema (v6.9): leer tras el login ════ */
   var Params = (function () {
-    var v = { recipe_restriction: false, stock_negative_allowed: true, inventory_restriction: false, decimal_precision: 4 };
+    var v = { recipe_restriction: false, stock_negative_allowed: true, inventory_restriction: false, decimal_precision: 4, production_queue: false };
     function pick(o, k) { var x = o && o[k]; if (x && typeof x === 'object' && 'value' in x) return x.value; return x; }
     return {
       load: function (data) {
         var d = (data && data.params) || data || {};
-        ['recipe_restriction', 'stock_negative_allowed', 'inventory_restriction', 'decimal_precision'].forEach(function (k) {
+        ['recipe_restriction', 'stock_negative_allowed', 'inventory_restriction', 'decimal_precision', 'production_queue'].forEach(function (k) {
           var val = pick(d, k); if (val !== undefined && val !== null) v[k] = val;
         });
       },
       recipeRequired: function () { return v.recipe_restriction === true || v.recipe_restriction === 1 || v.recipe_restriction === '1'; },
+      queueEnabled: function () { return v.production_queue === true || v.production_queue === 1 || v.production_queue === '1'; },
       decimals: function () { var n = parseInt(v.decimal_precision, 10); return isNaN(n) ? 4 : n; },
       all: function () { return v; }
     };
@@ -198,18 +199,35 @@
     async function dispatch(p, save) {
       // Compat: migrar items encolados con la forma anterior (single-SKU) a items[].
       if (!p.items && p.quantity != null) { p.items = [{ sku_id: p.itemId, quantity: p.quantity, sku: p.sku, name: p.name, unit: p.unit }]; }
-      // Ciclo de producción multi-SKU: crear OP con items[] → ejecutar → completar con items[]. Resumible.
+      var items = p.items || [];
+      var createItems = items.map(function (it) { return { sku_id: it.sku_id, quantity_target: it.quantity }; });
+
+      if (!Params.queueEnabled()) {
+        // production_queue=false: un solo POST crea la OP, la ejecuta y registra inventario.
+        if (p.orderId == null) {
+          var body = { interlocutor_id: p.interlocutorId, items: createItems };
+          if (p.outputLocationId != null) body.output_location_id = p.outputLocationId; // opcional: el API resuelve zona PT
+          if (p.recipeId != null) body.recipe_id = p.recipeId;
+          var r = await omniFetch('production/orders', 'POST', body);
+          p.orderId = (r && (r.id != null ? r.id : (r.order_id != null ? r.order_id : (r.data && (r.data.order_id != null ? r.data.order_id : r.data.id))))) || null;
+          if (p.orderId == null) { var e1 = new Error('La creación de la OP no devolvió id'); e1.rejected = true; throw e1; }
+          p.executed = true; save(); // sin /execute ni /complete
+        }
+        return;
+      }
+
+      // production_queue=true: flujo manual de tres pasos (crear → ejecutar → completar). Resumible.
       if (p.orderId == null) {
-        var body = { interlocutor_id: p.interlocutorId, items: (p.items || []).map(function (it) { return { sku_id: it.sku_id, quantity_target: it.quantity }; }) };
-        if (p.recipeId != null) body.recipe_id = p.recipeId;   // opcional (recipe_restriction=false)
-        var c = await omniFetch('production/orders', 'POST', body);
+        var body2 = { interlocutor_id: p.interlocutorId, items: createItems };
+        if (p.recipeId != null) body2.recipe_id = p.recipeId;
+        var c = await omniFetch('production/orders', 'POST', body2);
         p.orderId = (c && (c.id != null ? c.id : (c.order_id != null ? c.order_id : (c.data && c.data.id)))) || null;
         if (p.orderId == null) { var e0 = new Error('La creación de la OP no devolvió id'); e0.rejected = true; throw e0; }
         save();
       }
       if (!p.executed) { await omniFetch('production/orders/' + p.orderId + '/execute', 'PUT', null); p.executed = true; save(); }
-      var done = { items: (p.items || []).map(function (it) { return { sku_id: it.sku_id, quantity_real: it.quantity }; }) };
-      if (p.outputLocationId != null) done.output_location_id = p.outputLocationId; // opcional: el API resuelve zona PT
+      var done = { items: items.map(function (it) { return { sku_id: it.sku_id, quantity_real: it.quantity }; }) };
+      if (p.outputLocationId != null) done.output_location_id = p.outputLocationId;
       return omniFetch('production/orders/' + p.orderId + '/complete', 'PUT', done);
     }
     async function drain() {
@@ -317,10 +335,11 @@
     batch = []; renderCounter(); renderRecent(); renderChips(); renderGrid();
     showView('prod-view'); Scan.start(onScan);
     if (Outbox.frozen() && Outbox.count() === 0) Outbox.resume(); // congelado obsoleto sin nada pendiente
-    Outbox.render(); Outbox.drain(); siteMsg('', 'mute'); forceFocus();
+    Outbox.render(); siteMsg('', 'mute'); forceFocus();
+    if (navigator.onLine) { try { await refreshParams(); } catch (e) {} } // params antes de drenar: define production_queue
+    Outbox.drain();
     try { await loadLocations(); } catch (e) { toast('No se pudieron cargar ubicaciones.', 'warn'); }
     renderLocLine();
-    if (navigator.onLine) { try { await refreshParams(); } catch (e) {} }
     if (navigator.onLine) { try { await refreshCatalog(); } catch (e) { Catalog.restore(); toast('Catálogo: ' + (e.message || 'no se pudo cargar'), 'warn'); } } else Catalog.restore();
     if (navigator.onLine) { try { await refreshRecipes(); } catch (e) {} }
     renderChips(); renderGrid();
