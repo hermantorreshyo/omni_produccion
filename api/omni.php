@@ -124,7 +124,7 @@ function coreCall(OmniCoreClient $client, array $CFG, string $method, string $en
  */
 function rawLogin(array $CFG, string $username, string $password, ?int $iid): array {
     $body = ['usuario' => $username, 'username' => $username, 'email' => $username, 'password' => $password];
-    if ($iid !== null && $iid > 0) { $body['interlocutor_id'] = $iid; }
+    if ($iid !== null) { $body['interlocutor_id'] = $iid; } // §3: paso 1 usa interlocutor_id 0
     $res = coreCall(omniClient($CFG), $CFG, 'POST', 'auth/login', $body, false);
     if ($res['status'] === 0) { return ['ok' => false, 'error' => 'Sin conexión con el API CORE: ' . $res['error'], 'code' => 'ERR_OMNI_UNREACHABLE', 'status' => 502]; }
     if (!is_array($res['json'])) {
@@ -145,7 +145,7 @@ function rawLogin(array $CFG, string $username, string $password, ?int $iid): ar
         'role'     => $d['role'] ?? $d['rol'] ?? '',
         'tienda'   => $d['interlocutor_name'] ?? null,
     ];
-    return ['ok' => true, 'token' => $token, 'user' => $user, 'permissions' => $d['permissions'] ?? [], 'interlocutor_id' => $d['interlocutor_id'] ?? $iid, 'interlocutor_name' => $d['interlocutor_name'] ?? null];
+    return ['ok' => true, 'token' => $token, 'user' => $user, 'permissions' => $d['permissions'] ?? [], 'interlocutor_id' => $d['interlocutor_id'] ?? $iid, 'interlocutor_name' => $d['interlocutor_name'] ?? null, 'available_interlocutors' => $d['available_interlocutors'] ?? ($j['available_interlocutors'] ?? [])];
 }
 
 /* ═══════════════ PSEUDO-ENDPOINTS LOCALES ═══════════════ */
@@ -200,17 +200,15 @@ if ($path === 'auth/login') {
     $username = trim((string) ($payload['username'] ?? $payload['usuario'] ?? ''));
     $password = (string) ($payload['password'] ?? '');
     if ($username === '' || $password === '') { failure('Usuario y contraseña son obligatorios.', 'ERR_VALIDATION', 400); }
-    // v6.8: el login SIEMPRE lleva interlocutor_id. Arranque con el por defecto (para poder listar sedes);
-    // si ese interlocutor no aplica al usuario, fallback a login sin interlocutor_id.
-    $boot = (int) ($CFG['DEFAULT_INTERLOCUTOR_ID'] ?? 1);
-    $r = rawLogin($CFG, $username, $password, $boot);
+    // §3 paso 1: login con interlocutor_id = 0 → el API devuelve available_interlocutors (sedes del usuario).
+    $r = rawLogin($CFG, $username, $password, 0);
     if (empty($r['ok'])) { $r2 = rawLogin($CFG, $username, $password, null); if (!empty($r2['ok'])) { $r = $r2; } }
     if (empty($r['ok'])) { failure($r['error'] ?? 'Credenciales inválidas.', $r['code'] ?? 'ERR_AUTH', $r['status'] ?? 401); }
     $_SESSION['omni_token'] = $r['token'];
     $_SESSION['omni_user']  = $r['user'];
     $_SESSION['omni_cred']  = ['u' => $username, 'p' => $password]; // server-side, para re-autenticar con la sede
     unset($_SESSION['omni_iid'], $_SESSION['omni_iname']);          // la sede real se elige después
-    success(['user' => $r['user'], 'permissions' => $r['permissions']], 'Sesión iniciada');
+    success(['user' => $r['user'], 'permissions' => $r['permissions'], 'available_interlocutors' => $r['available_interlocutors'] ?? []], 'Sesión iniciada');
 }
 
 /* ═══════════════ ENDPOINTS DEL API (allowlist) ═══════════════ */
@@ -223,6 +221,16 @@ if (!$isDiscovery && $path !== 'health' && empty($_SESSION['omni_iid'])) { failu
 
 $res = coreCall(omniClient($CFG), $CFG, $method, $endpoint, $payload, !$isDiscovery);
 if ($res['status'] === 0) { failure('Error de red con el API CORE: ' . $res['error'], 'ERR_OMNI_UNREACHABLE', 502); }
+
+// §3: ante 401, intentar refrescar el token una vez y reintentar (evita cortar la sesión por expiración).
+if ($res['status'] === 401 && !empty($_SESSION['omni_token']) && $path !== 'auth/login' && $path !== 'auth/refresh') {
+    $rf = coreCall(omniClient($CFG), $CFG, 'POST', 'auth/refresh', null, false);
+    if ($rf['status'] >= 200 && $rf['status'] < 300 && is_array($rf['json'])) {
+        $dd = $rf['json']['data'] ?? $rf['json'];
+        $ntok = $dd['token'] ?? $dd['accessToken'] ?? $dd['access_token'] ?? null;
+        if ($ntok) { $_SESSION['omni_token'] = $ntok; $res = coreCall(omniClient($CFG), $CFG, $method, $endpoint, $payload, !$isDiscovery); }
+    }
+}
 if ($res['status'] === 401) { $_SESSION = []; }
 
 if (is_array($res['json'])) { reply($res['json'], $res['status'] ?: 200); }

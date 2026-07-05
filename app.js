@@ -248,24 +248,34 @@
     try {
       var data = await omniFetch('auth/login', 'POST', { username: u, password: p });
       sessionUser = data && data.user; canConfigure = roleIsAdmin();
+      availableInterlocutors = (data && data.available_interlocutors) || null;
       Feedback.ok(); loginMsg('', 'mute');
       await goToSiteSelection();
     } catch (e) { loginMsg('✗ ' + (e.message || 'Credenciales inválidas'), 'err'); Feedback.err(); $('login-pass').value = ''; }
     finally { $('btn-login').disabled = false; }
   }
+  var availableInterlocutors = null;
   async function goToSiteSelection() {
     $('site-user').textContent = (sessionUser && (sessionUser.nombre || sessionUser.name || sessionUser.username)) || '';
-    siteMsg('Cargando fábricas…', 'mute'); showView('site-view');
+    showView('site-view');
+    if (availableInterlocutors && availableInterlocutors.length) { renderSites(availableInterlocutors); siteMsg('', 'mute'); return; }
+    siteMsg('Cargando fábricas…', 'mute');
     try { await loadFabricas(); siteMsg('', 'mute'); }
     catch (e) { siteMsg('✗ ' + (e.message || 'No se pudieron cargar fábricas'), 'err'); }
   }
-  async function loadFabricas() {
-    // Todas las sedes operativas (fábricas y puntos de venta): los PdV también fabrican.
-    var data = await omniFetch('catalog/interlocutors', 'GET');
-    var rows = rowsOf(data).filter(function (it) { return String(it.type || '').toLowerCase() !== 'empresa'; });
+  function renderSites(rows) {
+    rows = (rows || []).filter(function (it) { return String(it.type || '').toLowerCase() !== 'empresa'; });
     var sel = $('login-site');
     sel.innerHTML = '<option value="">— Seleccione sede —</option>';
-    rows.forEach(function (it) { var id = it.id || it.interlocutor_id, name = it.commercial_name || it.fiscal_name || it.name || ('Sede ' + id); sel.insertAdjacentHTML('beforeend', '<option value="' + id + '" data-name="' + String(name).replace(/"/g, '') + '">' + name + '</option>'); });
+    rows.forEach(function (it) {
+      var id = it.id || it.interlocutor_id, name = it.commercial_name || it.fiscal_name || it.name || it.interlocutor_name || ('Sede ' + id);
+      sel.insertAdjacentHTML('beforeend', '<option value="' + id + '" data-name="' + String(name).replace(/"/g, '') + '">' + name + '</option>');
+    });
+    return rows.length;
+  }
+  async function loadFabricas() {
+    // Respaldo si el login no trae available_interlocutors: todas las sedes operativas (los PdV también fabrican).
+    renderSites(rowsOf(await omniFetch('catalog/interlocutors', 'GET')));
   }
   async function enterSite() {
     var sel = $('login-site'); if (!sel.value) { siteMsg('Seleccione una fábrica.', 'err'); Feedback.err(); return; }
