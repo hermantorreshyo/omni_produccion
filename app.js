@@ -316,7 +316,9 @@
   /* ════ 9. UBICACIONES ════ */
   function locLabel(l) { var a = (l.area_type || '').replace(/_/g, ' '); var sp = [l.shelf, l.position].filter(Boolean).join(' '); var qr = l.qr_code_uid ? (' · ' + l.qr_code_uid) : ''; return ([a, sp].filter(Boolean).join(' ') || ('Ubicación ' + (l.id || l.location_id))) + qr; }
   async function loadLocations() {
-    var data = await omniFetch('catalog/locations', 'GET'); locations = rowsOf(data);
+    // Solo ubicaciones de la sede activa: el API valida que output_location_id pertenezca a esta sede.
+    var iid = activeSite && activeSite.id;
+    var data = await omniFetch('catalog/locations' + (iid ? '?interlocutor_id=' + encodeURIComponent(iid) : ''), 'GET'); locations = rowsOf(data);
     var cp = new RegExp((CFG && CFG.custody_pattern) || 'producto_terminado', 'i');
     // Ubicación de SALIDA del PT (output_location_id): zona de producto terminado de la sede; si no, su 1ª ubicación.
     var out = null;
