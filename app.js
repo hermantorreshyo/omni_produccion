@@ -256,7 +256,7 @@
   var Scan = (function () {
     var buf = '', last = 0, cb = null, on = false;
     function handler(e) {
-      if (!on) return; if (document.activeElement === $('sku-search')) return;
+      if (!on) return; var ae = document.activeElement; if (ae === $('sku-search') || ae === $('sku-qty')) return;
       var now = Date.now(); if (now - last > 120) buf = ''; last = now;
       if (e.key === 'Enter') { if (buf.length >= 3 && cb) cb(buf); buf = ''; return; }
       if (e.key && e.key.length === 1) buf += e.key;
@@ -353,7 +353,7 @@
     if (navigator.onLine) { try { await refreshRecipes(); } catch (e) {} }
     renderChips(); renderGrid();
   }
-  function forceFocus() { try { $('scan-trap').focus(); } catch (e) {} }
+  function forceFocus() { var a = document.activeElement; if (a && (a.id === 'sku-qty' || a.id === 'sku-search' || a.tagName === 'INPUT' || a.tagName === 'SELECT' || a.tagName === 'TEXTAREA')) return; try { $('scan-trap').focus(); } catch (e) {} }
   function flashStage(kind) { var s = $('prod-stage'); s.classList.remove('ok', 'err'); void s.offsetWidth; s.classList.add(kind); setTimeout(function () { s.classList.remove('ok', 'err'); }, 260); }
   function totalUnits() { return batch.reduce(function (a, e) { return a + e.qty; }, 0); }
   function renderCounter() {
