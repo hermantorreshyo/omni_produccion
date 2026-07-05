@@ -158,10 +158,17 @@
     var tU = 0, tM = 0, tS = {}, wU = 0, wM = 0, last = null;
     rows.forEach(function (r) {
       if (!mine(r)) return;
-      var q = Math.abs(Number(r.quantity_real != null ? r.quantity_real : (r.quantity_total != null ? r.quantity_total : (r.quantity != null ? r.quantity : 0)))) || 0;
+      var items = r.items || [];
+      var q = items.length
+        ? items.reduce(function (a, i) { return a + (Math.abs(Number(i.quantity_real != null ? i.quantity_real : (i.quantity_target != null ? i.quantity_target : 0))) || 0); }, 0)
+        : (Math.abs(Number(r.total_quantity_real != null ? r.total_quantity_real : (r.quantity_real != null ? r.quantity_real : (r.quantity_total != null ? r.quantity_total : (r.quantity != null ? r.quantity : 0))))) || 0);
       var ts = r.end_time || r.completed_at || r.created_at || r.start_time; var tm = ts ? new Date(ts).getTime() : 0;
       wU += q; wM++; if (!last || tm > new Date(last).getTime()) last = ts;
-      if (tm >= t0) { tU += q; tM++; var sku = r.product_sku_id != null ? r.product_sku_id : r.recipe_id; if (sku != null) tS[sku] = 1; }
+      if (tm >= t0) {
+        tU += q; tM++;
+        if (items.length) { items.forEach(function (i) { if (i.sku_id != null) tS[i.sku_id] = 1; }); }
+        else { var sku = r.product_sku_id != null ? r.product_sku_id : r.recipe_id; if (sku != null) tS[sku] = 1; }
+      }
     });
     return { todayUnits: Math.round(tU), todayMoves: tM, todaySkus: Object.keys(tS).length, weekUnits: Math.round(wU), weekMoves: wM, last: last, hasUser: hasUser };
   }
@@ -654,27 +661,39 @@
     var uid = sessionUser && (sessionUser.id || sessionUser.user_id), uname = sessionUser && (sessionUser.username || sessionUser.nombre || sessionUser.name);
     var hasUser = rows.some(function (r) { return ('completed_by_user_id' in r) || ('registered_by' in r) || ('created_by_user_id' in r) || ('user_id' in r); });
     function mine(r) { if (!hasUser) return false; var u = r.completed_by_user_id != null ? r.completed_by_user_id : (r.registered_by != null ? r.registered_by : (r.created_by_user_id != null ? r.created_by_user_id : r.user_id)); if (uid != null && String(u) === String(uid)) return true; if (uname && (r.username === uname || r.user_name === uname)) return true; return false; }
-    var byItem = {}, units = 0, moves = 0;
+    var byItem = {}, units = 0, orders = 0;
     rows.forEach(function (r) {
       var ts = r.end_time || r.completed_at || r.created_at || r.start_time; var tm = ts ? new Date(ts).getTime() : 0;
       if (tm && (tm < fromT || tm > toT)) return;
       if (mineOnly && hasUser && !mine(r)) return;
-      var q = Math.abs(Number(r.quantity_real != null ? r.quantity_real : (r.quantity_total != null ? r.quantity_total : (r.quantity != null ? r.quantity : 0)))) || 0;
-      var sku = r.product_sku_id != null ? r.product_sku_id : r.recipe_id;
-      var nm = r.product || r.product_name || r.name || ((Recipes.forSku(sku) || {}).name) || ('SKU ' + sku);
-      var key = String(sku != null ? sku : nm);
-      if (!byItem[key]) byItem[key] = { name: nm, units: 0, moves: 0 };
-      byItem[key].units += q; byItem[key].moves++; units += q; moves++;
+      orders++;
+      var items = r.items || [];
+      if (items.length) {
+        items.forEach(function (i) {
+          var q = Math.abs(Number(i.quantity_real != null ? i.quantity_real : (i.quantity_target != null ? i.quantity_target : 0))) || 0;
+          var nm = i.sku_name || ((Recipes.forSku(i.sku_id) || {}).name) || ('SKU ' + i.sku_id);
+          var key = String(i.sku_id != null ? i.sku_id : nm);
+          if (!byItem[key]) byItem[key] = { name: nm, units: 0, ops: 0 };
+          byItem[key].units += q; byItem[key].ops++; units += q;
+        });
+      } else { // compat: OP sin items[]
+        var q0 = Math.abs(Number(r.total_quantity_real != null ? r.total_quantity_real : (r.quantity_real != null ? r.quantity_real : (r.quantity_total != null ? r.quantity_total : (r.quantity != null ? r.quantity : 0))))) || 0;
+        var sku = r.product_sku_id != null ? r.product_sku_id : r.recipe_id;
+        var nm0 = r.product_name || r.product || r.name || ((Recipes.forSku(sku) || {}).name) || (sku != null ? ('SKU ' + sku) : ('OP ' + (r.op_number || r.id || '')));
+        var key0 = String(sku != null ? sku : nm0);
+        if (!byItem[key0]) byItem[key0] = { name: nm0, units: 0, ops: 0 };
+        byItem[key0].units += q0; byItem[key0].ops++; units += q0;
+      }
     });
     var list = Object.keys(byItem).map(function (k) { return byItem[k]; }).sort(function (a, b) { return b.units - a.units; });
-    $('rep-units').textContent = Math.round(units); $('rep-moves').textContent = moves; $('rep-skus').textContent = list.length;
+    $('rep-units').textContent = Math.round(units); $('rep-moves').textContent = orders; $('rep-skus').textContent = list.length;
     $('rep-summary').classList.remove('hidden');
     var body = $('rep-body');
     if (!list.length) { body.innerHTML = '<div class="text-ink-400 text-sm text-center py-4">Sin producción completada en el rango.</div>'; repMsg(''); return; }
     body.innerHTML = '<div class="text-ink-400 text-[11px] uppercase tracking-wider mb-1">Por producto</div>';
     list.forEach(function (it) {
       var div = document.createElement('div'); div.className = 'flex items-center justify-between bg-ink-50 rounded-lg px-3 py-2';
-      div.innerHTML = '<span class="text-sm truncate pr-2">' + it.name + '</span><span class="text-sm font-bold text-brand num shrink-0">' + Math.round(it.units) + ' u · ' + it.moves + ' OP</span>';
+      div.innerHTML = '<span class="text-sm truncate pr-2">' + it.name + '</span><span class="text-sm font-bold text-brand num shrink-0">' + Math.round(it.units) + ' u · ' + it.ops + ' OP</span>';
       body.appendChild(div);
     });
     repMsg((mineOnly && hasUser ? 'Solo tu producción.' : 'Toda la sede.') + (hasUser ? '' : ' (las OPs no traen usuario por fila)'));
