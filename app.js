@@ -253,7 +253,7 @@
         }
       } finally { draining = false; render(); if ($('drawer').classList.contains('open')) loadKpis(); }
     }
-    return { push: function (p) { var q = read(); q.push(p); write(q); render(); drain(); }, drain: drain, render: render, frozen: frozen, count: function () { return read().length; }, resume: function () { clearFrozen(); render(); drain(); } };
+    return { push: function (p) { var q = read(); q.push(p); write(q); render(); drain(); }, drain: drain, render: render, frozen: frozen, frozenReason: function () { return ls(FROZEN_KEY + '.r') || ''; }, count: function () { return read().length; }, resume: function () { clearFrozen(); render(); drain(); }, discard: function () { write([]); clearFrozen(); render(); } };
   })();
 
   /* ════ 7. ESCÁNER HID ════ */
@@ -347,7 +347,12 @@
     $('prod-role').textContent = u.rol || u.role || '';
     batch = []; renderCounter(); renderRecent(); renderChips(); renderGrid();
     showView('prod-view'); Scan.start(onScan);
-    if (Outbox.frozen() && Outbox.count() === 0) Outbox.resume(); // congelado obsoleto sin nada pendiente
+    if (Outbox.frozen()) {
+      // Un login válido supera cualquier congelado por sesión/token: limpiar y reintentar con el token nuevo.
+      // Los bloqueos por negocio (permiso/validación) se conservan y reaparecerán con su mensaje al reintentar.
+      var fr = Outbox.frozenReason();
+      if (Outbox.count() === 0 || /sesi[oó]n|expirad|no iniciada|ERR_AUTH|token|\b401\b/i.test(fr)) { Outbox.resume(); }
+    }
     Outbox.render(); siteMsg('', 'mute'); forceFocus();
     if (navigator.onLine) { try { await refreshParams(); } catch (e) {} } // params antes de drenar: define production_queue
     Outbox.drain();
@@ -769,6 +774,7 @@
     $('rep-generate').addEventListener('click', generateReport);
     Array.prototype.forEach.call(document.querySelectorAll('.rep-quick'), function (b) { b.addEventListener('click', function () { quickRange(parseInt(b.getAttribute('data-range'), 10)); }); });
     $('btn-unfreeze').addEventListener('click', function () { $('unfreeze-modal').classList.remove('hidden'); $('unfreeze-modal').classList.add('flex'); });
+    $('btn-discard').addEventListener('click', function () { if (window.confirm('¿Descartar los registros de producción pendientes en la cola? No se enviarán al servidor.')) { Outbox.discard(); toast('Cola de sincronización vaciada.', 'ok'); } });
     $('uf-cancel').addEventListener('click', function () { $('unfreeze-modal').classList.add('hidden'); $('unfreeze-modal').classList.remove('flex'); });
     $('uf-ok').addEventListener('click', doUnfreeze);
     document.addEventListener('pointerup', function () { if ($('prod-view').classList.contains('active') && !$('drawer').classList.contains('open') && !document.querySelector('#unfreeze-modal.flex') && !document.querySelector('#report-modal.flex') && document.activeElement !== $('sku-search') && document.activeElement !== $('sku-qty')) setTimeout(forceFocus, 30); });
